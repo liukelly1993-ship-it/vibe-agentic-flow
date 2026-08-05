@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 920">
+  <style>
+    text { font-family: 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; }
+    .title { fill:#f8fafc; font-size:24px; font-weight:700; }
+    .subtitle { fill:#94a3b8; font-size:11px; }
+    .section { fill:#cbd5e1; font-size:12px; font-weight:700; }
+    .name { fill:#f8fafc; font-size:11px; font-weight:600; text-anchor:middle; }
+    .desc { fill:#94a3b8; font-size:8.5px; text-anchor:middle; }
+    .tiny { fill:#94a3b8; font-size:8px; text-anchor:middle; }
+    .lane { fill:#64748b; font-size:9px; font-weight:600; }
+  </style>
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0 L0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#64748b"/></marker>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#60a5fa"/></marker>
+    <marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#fbbf24"/></marker>
+  </defs>
+  <rect width="1500" height="920" fill="#0f172a"/>
+  <rect width="1500" height="920" fill="url(#grid)"/>
+
+  <text x="38" y="42" class="title">VAF 产品工作流｜从需求到生产的可治理 AI 研发闭环</text>
+  <text x="38" y="64" class="subtitle">规格是事实来源 · 阶段门控制推进 · Agent 负责语义工作 · 工具负责确定性验证 · 所有结果形成证据链</text>
+
+  <rect x="30" y="92" width="1440" height="290" rx="14" fill="none" stroke="#60a5fa" stroke-width="1" stroke-dasharray="10,5"/>
+  <text x="48" y="114" fill="#60a5fa" font-size="10" font-weight="700">端到端研发价值流</text>
+  <text x="48" y="144" class="lane">发现与定义</text>
+  <text x="430" y="144" class="lane">方案与计划</text>
+  <text x="772" y="144" class="lane">实现与验证</text>
+  <text x="1128" y="144" class="lane">交付与学习</text>
+
+  <!-- primary flow connections -->
+  <path d="M180 213 H216" stroke="#60a5fa" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <path d="M366 213 H402" stroke="#60a5fa" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <path d="M552 213 H588" stroke="#60a5fa" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <path d="M738 213 H774" stroke="#60a5fa" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <path d="M924 213 H960" stroke="#60a5fa" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <path d="M1110 213 H1146" stroke="#60a5fa" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <path d="M1296 213 H1332" stroke="#60a5fa" stroke-width="2" marker-end="url(#arrow-blue)"/>
+
+  <!-- masks and boxes -->
+  <g><rect x="48" y="173" width="132" height="80" rx="7" fill="#0f172a"/><rect x="48" y="173" width="132" height="80" rx="7" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/><text x="114" y="200" class="name">需求接入</text><text x="114" y="219" class="desc">目标 / 范围 / 来源</text><text x="114" y="235" class="desc">Intake</text></g>
+  <g><rect x="216" y="173" width="150" height="80" rx="7" fill="#0f172a"/><rect x="216" y="173" width="150" height="80" rx="7" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/><text x="291" y="200" class="name">可行性与需求分析</text><text x="291" y="219" class="desc">风险 / 假设 / 选项</text><text x="291" y="235" class="desc">Feasibility</text></g>
+  <g><rect x="402" y="173" width="150" height="80" rx="7" fill="#0f172a"/><rect x="402" y="173" width="150" height="80" rx="7" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/><text x="477" y="200" class="name">BRD / PRD</text><text x="477" y="219" class="desc">业务价值 / 系统行为</text><text x="477" y="235" class="desc">REQ / US / AC</text></g>
+  <g><rect x="588" y="173" width="150" height="80" rx="7" fill="#0f172a"/><rect x="588" y="173" width="150" height="80" rx="7" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/><text x="663" y="200" class="name">技术与测试设计</text><text x="663" y="219" class="desc">ADR / API / TC</text><text x="663" y="235" class="desc">实施任务 DAG</text></g>
+  <g><rect x="774" y="173" width="150" height="80" rx="7" fill="#0f172a"/><rect x="774" y="173" width="150" height="80" rx="7" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/><text x="849" y="200" class="name">隔离代码实现</text><text x="849" y="219" class="desc">Git worktree</text><text x="849" y="235" class="desc">代码 + 单元测试</text></g>
+  <g><rect x="960" y="173" width="150" height="80" rx="7" fill="#0f172a"/><rect x="960" y="173" width="150" height="80" rx="7" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/><text x="1035" y="200" class="name">自动验证与回归</text><text x="1035" y="219" class="desc">Build / Test / Scan</text><text x="1035" y="235" class="desc">独立质量裁判</text></g>
+  <g><rect x="1146" y="173" width="150" height="80" rx="7" fill="#0f172a"/><rect x="1146" y="173" width="150" height="80" rx="7" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.5"/><text x="1221" y="200" class="name">Staging / 发布候选</text><text x="1221" y="219" class="desc">不可变制品 / 冒烟</text><text x="1221" y="235" class="desc">Release Gate</text></g>
+  <g><rect x="1332" y="173" width="120" height="80" rx="7" fill="#0f172a"/><rect x="1332" y="173" width="120" height="80" rx="7" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.5"/><text x="1392" y="200" class="name">生产与复盘</text><text x="1392" y="219" class="desc">审批 / 健康 / 回滚</text><text x="1392" y="235" class="desc">规则沉淀</text></g>
+
+  <!-- gates -->
+  <path d="M477 253 V298" stroke="#fbbf24" stroke-width="1.5"/>
+  <path d="M663 253 V298" stroke="#fbbf24" stroke-width="1.5"/>
+  <path d="M1035 253 V298" stroke="#fbbf24" stroke-width="1.5"/>
+  <path d="M1392 253 V298" stroke="#fbbf24" stroke-width="1.5"/>
+  <g transform="translate(477,320)"><polygon points="0,-22 38,0 0,22 -38,0" fill="#0f172a"/><polygon points="0,-22 38,0 0,22 -38,0" fill="rgba(120,53,15,.3)" stroke="#fbbf24"/><text y="3" class="tiny" fill="#f8fafc">产品门</text></g>
+  <g transform="translate(663,320)"><polygon points="0,-22 38,0 0,22 -38,0" fill="#0f172a"/><polygon points="0,-22 38,0 0,22 -38,0" fill="rgba(120,53,15,.3)" stroke="#fbbf24"/><text y="3" class="tiny" fill="#f8fafc">方案门</text></g>
+  <g transform="translate(1035,320)"><polygon points="0,-22 38,0 0,22 -38,0" fill="#0f172a"/><polygon points="0,-22 38,0 0,22 -38,0" fill="rgba(120,53,15,.3)" stroke="#fbbf24"/><text y="3" class="tiny" fill="#f8fafc">质量门</text></g>
+  <g transform="translate(1392,320)"><polygon points="0,-22 38,0 0,22 -38,0" fill="#0f172a"/><polygon points="0,-22 38,0 0,22 -38,0" fill="rgba(120,53,15,.3)" stroke="#fbbf24"/><text y="3" class="tiny" fill="#f8fafc">发布门</text></g>
+  <path d="M1392 342 V358 H1035 V348" fill="none" stroke="#fb7185" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+  <text x="1210" y="354" fill="#fb7185" font-size="8" text-anchor="middle">失败 / 驳回 / 上游变更 → 回退、修复或失效</text>
+
+  <!-- control plane -->
+  <rect x="30" y="412" width="1440" height="270" rx="14" fill="none" stroke="#a78bfa" stroke-width="1" stroke-dasharray="10,5"/>
+  <text x="48" y="435" fill="#a78bfa" font-size="10" font-weight="700">VAF 控制平面</text>
+  <path d="M248 505 H294" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M494 505 H540" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M740 505 H786" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M986 505 H1032" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M1232 505 H1278" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <g><rect x="48" y="465" width="200" height="80" rx="7" fill="#0f172a"/><rect x="48" y="465" width="200" height="80" rx="7" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/><text x="148" y="492" class="name">CLI / API / 审批入口</text><text x="148" y="512" class="desc">启动、查看、审批、恢复</text><text x="148" y="528" class="desc">人始终拥有最终控制权</text></g>
+  <g><rect x="294" y="465" width="200" height="80" rx="7" fill="#0f172a"/><rect x="294" y="465" width="200" height="80" rx="7" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/><text x="394" y="492" class="name">Workflow Orchestrator</text><text x="394" y="512" class="desc">状态机 / Checkpoint / 重试</text><text x="394" y="528" class="desc">幂等、锁、失效传播</text></g>
+  <g><rect x="540" y="465" width="200" height="80" rx="7" fill="#0f172a"/><rect x="540" y="465" width="200" height="80" rx="7" fill="rgba(136,19,55,.4)" stroke="#fb7185" stroke-width="1.5"/><text x="640" y="492" class="name">Policy &amp; Gate Engine</text><text x="640" y="512" class="desc">Allow / Deny / Approval</text><text x="640" y="528" class="desc">权限、风险、质量阈值</text></g>
+  <g><rect x="786" y="465" width="200" height="80" rx="7" fill="#0f172a"/><rect x="786" y="465" width="200" height="80" rx="7" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.5"/><text x="886" y="492" class="name">Artifact &amp; Trace Store</text><text x="886" y="512" class="desc">Markdown / YAML / Git</text><text x="886" y="528" class="desc">版本、哈希、TraceLink</text></g>
+  <g><rect x="1032" y="465" width="200" height="80" rx="7" fill="#0f172a"/><rect x="1032" y="465" width="200" height="80" rx="7" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/><text x="1132" y="492" class="name">Agent &amp; Model Adapter</text><text x="1132" y="512" class="desc">生成草稿 / 语义判断</text><text x="1132" y="528" class="desc">结构化输出 / 成本审计</text></g>
+  <g><rect x="1278" y="465" width="174" height="80" rx="7" fill="#0f172a"/><rect x="1278" y="465" width="174" height="80" rx="7" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.5"/><text x="1365" y="492" class="name">Tool / CI/CD Adapter</text><text x="1365" y="512" class="desc">Git / Sandbox / Test</text><text x="1365" y="528" class="desc">Build / Deploy / Health</text></g>
+
+  <path d="M394 545 V602 H640 V545" fill="none" stroke="#fb7185" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <text x="517" y="597" fill="#fb7185" font-size="8" text-anchor="middle">每次外部动作执行前强制策略决策</text>
+  <path d="M1365 545 V626 H886 V545" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <text x="1125" y="622" fill="#a78bfa" font-size="8" text-anchor="middle">测试、扫描、部署结果回写为不可变证据</text>
+
+  <!-- roadmap -->
+  <rect x="30" y="712" width="1440" height="168" rx="14" fill="none" stroke="#fbbf24" stroke-width="1" stroke-dasharray="10,5"/>
+  <text x="48" y="736" fill="#fbbf24" font-size="10" font-weight="700">分阶段产品落地（愿景完整，交付收敛）</text>
+  <path d="M446 803 H500" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+  <path d="M946 803 H1000" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+  <g><rect x="60" y="760" width="386" height="86" rx="8" fill="#0f172a"/><rect x="60" y="760" width="386" height="86" rx="8" fill="rgba(59,130,246,.3)" stroke="#60a5fa" stroke-width="1.5"/><text x="253" y="785" class="name">v0.1｜需求到可验证代码</text><text x="253" y="806" class="desc">单仓库 FastAPI · CLI · 单人审批 · 单 worktree</text><text x="253" y="824" class="desc">Intake → PRD → 设计 → 任务 → 代码/单测 → Trace</text></g>
+  <g><rect x="500" y="760" width="446" height="86" rx="8" fill="#0f172a"/><rect x="500" y="760" width="446" height="86" rx="8" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/><text x="723" y="785" class="name">v0.2｜协作与 Staging</text><text x="723" y="806" class="desc">BRD / 可行性 · 多阶段审批 · 自动回归 · GitHub Actions</text><text x="723" y="824" class="desc">不可变制品 → Staging → 冒烟 → 证据回写</text></g>
+  <g><rect x="1000" y="760" width="422" height="86" rx="8" fill="#0f172a"/><rect x="1000" y="760" width="422" height="86" rx="8" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.5"/><text x="1211" y="785" class="name">v0.3｜生产治理平台</text><text x="1211" y="806" class="desc">多项目 · Policy Pack · OIDC · 发布审批</text><text x="1211" y="824" class="desc">灰度 / 健康检查 / 自动回滚 / 运行复盘</text></g>
+</svg>

@@ -428,6 +428,7 @@ class LocalWorkflow:
                     "invocation_id": result.invocation_id,
                     "exit_code": result.output.exit_code if result.output else None,
                     "error_code": result.error_code,
+                    "workspace_fingerprint": workspace_fingerprint,
                     "stdout": _truncate(result.output.stdout if result.output else ""),
                     "stderr": _truncate(result.output.stderr if result.output else ""),
                 },
@@ -505,15 +506,31 @@ class LocalWorkflow:
                 code_file_refs.add(file_ref)
 
         latest_verification = verification[-1] if verification else None
+        current_workspace_fingerprint = (
+            GitWorktreeManager.workspace_fingerprint(state.worktree_path)
+            if state.worktree_path
+            else None
+        )
+        verification_matches_workspace = bool(
+            latest_verification
+            and current_workspace_fingerprint
+            and latest_verification.get("workspace_fingerprint") == current_workspace_fingerprint
+        )
         passed_test_ids = {
             str(test_id)
             for event in code_events
             for test_id in event.payload.get("test_ids", [])
-        } if latest_verification and latest_verification.get("exit_code") == 0 else set()
+        } if verification_matches_workspace and latest_verification.get("exit_code") == 0 else set()
         acceptance_ids = {ref for ref in valid_refs if ref.startswith("AC-")}
         coverage = calculate_coverage(acceptance_ids, passed_test_ids, links, code_file_refs)
         validation_errors = validate_links(links, valid_refs)
-        quality_passed = bool(code_events) and bool(latest_verification) and latest_verification.get("exit_code") == 0 and coverage.passed and not validation_errors
+        quality_passed = (
+            bool(code_events)
+            and verification_matches_workspace
+            and latest_verification.get("exit_code") == 0
+            and coverage.passed
+            and not validation_errors
+        )
         report = {
             "run_id": run_id,
             "change_id": state.change_id,
@@ -525,8 +542,14 @@ class LocalWorkflow:
                 "worktree_branch": state.worktree_branch,
                 "changed_paths": list(state.changed_paths),
             },
-            "verification": verification[-1] if verification else None,
-            "coverage": coverage.__dict__,
+            "verification": latest_verification,
+            "verification_matches_workspace": verification_matches_workspace,
+            "coverage": {
+                **coverage.__dict__,
+                "acceptance_ratio": coverage.acceptance_ratio,
+                "code_explainability_ratio": coverage.code_explainability_ratio,
+                "passed": coverage.passed,
+            },
             "validation_errors": validation_errors,
             "trace_links": [
                 {

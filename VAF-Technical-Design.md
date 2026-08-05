@@ -333,6 +333,10 @@ StageBlocked
 ToolInvocationRequested
 PolicyDecisionMade
 ToolInvocationCompleted
+WorktreeCreated
+CodeFileWritten
+ImplementationCompleted
+ImplementationFailed
 VerificationCompleted
 StageFailed
 RetryRequested
@@ -542,7 +546,6 @@ CreateChange
   -> GenerateCodeCandidate
   -> RunVerification
   -> BuildTraceReport
-  -> WaitFinalReview
   -> Complete
 ```
 
@@ -558,7 +561,9 @@ CreateChange
 4. Worktree 路径由 VAF 在项目专用临时目录生成，Agent 不得指定。
 5. 生成前记录基线 commit；生成后只允许白名单路径变化。
 6. 验证失败时保留 worktree 和 diff，等待 `resume` 或人工处理。
-7. v0.1 不自动删除 worktree；提供显式的后续清理命令，并先展示目标。
+7. v0.1 不自动删除 worktree；后续版本提供显式清理命令，并先展示目标。
+
+当前 M0 已将 worktree 创建、文件写入和验证命令接入 ToolGateway；验证失败后保留 worktree，但 CLI 暂不提供自动重试或清理命令。
 
 ### 9.2 命令白名单
 
@@ -591,6 +596,7 @@ evidence_type: verification
 run_id: RUN-001
 command_id: unit-test
 argv_hash: sha256:...
+workspace_fingerprint: sha256:...
 exit_code: 0
 started_at: 2026-08-05T12:20:00Z
 finished_at: 2026-08-05T12:20:04Z
@@ -619,6 +625,8 @@ AC 覆盖率 = 有至少一个通过 TC 的 AC 数 / 已批准 AC 总数
 ```
 
 两项必须都是 100%。格式化文件、生成缓存、构建产物和明确标记为非业务的配置文件需要在规则中声明，否则不能被静默排除。
+
+M0 的实现不从代码 diff 自动推断语义关系，而要求实施计划在每个文件上显式声明 `requirement_ids`、`acceptance_ids` 和 `test_ids`。`verify` 保存执行时的 `workspace_fingerprint`；`trace` 会重新计算当前 worktree 指纹，指纹不一致时拒绝复用旧验证证据。
 
 ### 10.3 失效传播
 
@@ -841,12 +849,12 @@ project/vaf/
 
 ## 18. 当前实现状态与下一步
 
-当前 M0 已完成 Slice 1–6 的最小可运行闭环，并有 27 个 unittest 覆盖领域、Policy、事件恢复、worktree、代码写入和 CLI 集成场景。代码生成仍使用显式文件计划驱动的 FakeAgent；真实 LLM、语义 TraceLink、CI/CD 和部署适配器不在当前实现内。
+当前 M0 已完成 Slice 1–6 的最小可运行闭环，并有 29 个 unittest 覆盖领域、Policy、审批旧哈希拒绝、事件恢复、worktree、代码写入、验证证据失效和 CLI 集成场景。代码生成仍使用显式文件计划驱动的 FakeAgent；当前只实现显式 TraceLink 和覆盖率质量门，真实 LLM、语义关系自动推断、CI/CD 和部署适配器不在当前实现内。
 
 下一批实现建议为：
 
 ```text
-1. 语义 TraceLink：把 TASK、代码文件、测试和验证证据关联起来，并实现覆盖率门。
-2. AgentPort Provider：接入一个真实 LLM Provider，保留 Fake Agent 作为确定性回归夹具。
+1. AgentPort Provider：接入一个真实 LLM Provider，保留 Fake Agent 作为确定性回归夹具。
+2. 产物依赖失效传播：在多阶段上游版本变化时阻止下游旧产物继续执行。
 3. 回归测试与 CI/CD Adapter：先 staging，再设计生产审批和回滚。
 ```

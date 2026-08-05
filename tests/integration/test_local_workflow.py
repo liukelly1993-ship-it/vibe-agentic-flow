@@ -16,6 +16,50 @@ from vaf.policy.engine import PolicyEngine, ToolRequest
 
 
 class LocalWorkflowCliTests(unittest.TestCase):
+    def test_approve_rejects_stale_target_hash(self) -> None:
+        project = Path(__file__).parents[2]
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "demo"
+            self._init_repo(repo)
+            state = json.loads(
+                self._cli(
+                    project,
+                    repo,
+                    "run",
+                    "--change",
+                    "CHG-STALE-APPROVAL",
+                    "--title",
+                    "Stale approval",
+                    "--objective",
+                    "验证审批绑定版本",
+                )
+            )
+            artifact_path = Path(state["artifact_path"])
+            artifact_path.write_text(artifact_path.read_text(encoding="utf-8") + "\n人工修改\n", encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "vaf.cli",
+                    "--path",
+                    str(repo),
+                    "approve",
+                    "--run",
+                    state["run_id"],
+                    "--actor",
+                    "reviewer",
+                    "--target-hash",
+                    state["artifact_hash"],
+                ],
+                cwd=project,
+                env={**os.environ, "PYTHONPATH": str(project / "src")},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("VAF-APPROVAL-STALE", result.stderr)
+
     def test_init_run_reject_resume_and_review(self) -> None:
         project = Path(__file__).parents[2]
         with tempfile.TemporaryDirectory() as directory:
@@ -79,6 +123,25 @@ class LocalWorkflowCliTests(unittest.TestCase):
 
             ready = json.loads(self._cli(project, repo, "resume", "--run", run_id))
             self.assertEqual(ready["status"], "READY_FOR_IMPLEMENTATION")
+            verify_before_implementation = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "vaf.cli",
+                    "--path",
+                    str(repo),
+                    "verify",
+                    "--run",
+                    run_id,
+                ],
+                cwd=project,
+                env={**os.environ, "PYTHONPATH": str(project / "src")},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(verify_before_implementation.returncode, 2)
+            self.assertIn("VAF-STATE-001", verify_before_implementation.stderr)
             trace = json.loads(self._cli(project, repo, "trace", "--run", run_id))
             self.assertEqual(trace["status"], "incomplete")
             self.assertGreaterEqual(trace["event_count"], 14)
@@ -94,10 +157,13 @@ class LocalWorkflowCliTests(unittest.TestCase):
   changes:
     - task_id: TASK-001
       path: generated.py
+      requirement_ids: [REQ-001]
       content: |
         VALUE = 1
     - task_id: TASK-001
       path: tests/test_generated.py
+      acceptance_ids: [AC-001, AC-002]
+      test_ids: [TC-001]
       content: |
         import unittest
         import generated
@@ -142,6 +208,11 @@ class LocalWorkflowCliTests(unittest.TestCase):
             self.assertFalse((repo / "generated.py").exists())
             verified = json.loads(self._cli(project, repo, "verify", "--run", run_id))
             self.assertEqual(verified["status"], "VERIFIED")
+            trace = json.loads(self._cli(project, repo, "trace", "--run", run_id))
+            self.assertEqual(trace["status"], "passed")
+            self.assertTrue(trace["verification_matches_workspace"])
+            self.assertEqual(trace["coverage"]["acceptance_ratio"], 1.0)
+            self.assertEqual(trace["coverage"]["code_explainability_ratio"], 1.0)
             verified_again = json.loads(self._cli(project, repo, "verify", "--run", run_id))
             self.assertEqual(verified_again["status"], "VERIFIED")
             (worktree / "tests" / "test_generated.py").write_text(
@@ -150,6 +221,9 @@ class LocalWorkflowCliTests(unittest.TestCase):
             )
             verified_after_change = json.loads(self._cli(project, repo, "verify", "--run", run_id))
             self.assertEqual(verified_after_change["status"], "FAILED")
+            trace_after_change = json.loads(self._cli(project, repo, "trace", "--run", run_id))
+            self.assertEqual(trace_after_change["status"], "incomplete")
+            self.assertTrue(trace_after_change["verification_matches_workspace"])
 
     def test_implementation_recovers_after_first_file_write(self) -> None:
         project = Path(__file__).parents[2]

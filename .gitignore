@@ -1,0 +1,68 @@
+# ============ Python 字节码与编译产物 ============
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ============ 打包与构建产物 ============
+*.egg-info/
+*.egg
+build/
+dist/
+wheels/
+pip-wheel-metadata/
+
+# ============ 测试与覆盖率缓存 ============
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# ============ 类型检查 / Lint 缓存 ============
+.mypy_cache/
+.pyright/
+.ruff_cache/
+
+# ============ 虚拟环境 ============
+venv/
+.venv/
+env/
+.ENV/
+.python-version
+
+# ============ IDE / 编辑器 ============
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+
+# ============ 操作系统文件 ============
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ============ 日志与临时文件 ============
+*.log
+*.tmp
+*.bak
+*.swp
+
+# ============ 环境变量 / 密钥(请勿提交) ============
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ============ 项目特定:diagram 资源生成物 ============
+# 源文件(.svg / .png / role/*.md)保留,仅忽略可能的导出缓存
+diagram/**/*.cache

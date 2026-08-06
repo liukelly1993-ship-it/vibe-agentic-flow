@@ -23,7 +23,7 @@ depends_on:
 - 工具调用如何经过 Policy Gateway，并做到可恢复、可审计、可幂等。
 - 第一版如何在不接入真实 LLM、不部署云资源的情况下完成可验证的 Golden Change。
 
-本文不设计 v0.2 的 staging 部署、v0.3 的生产发布、多租户和 Web 控制台；这些能力只保留适配器边界。
+本文不设计 v0.2 的 staging 部署、v0.3 的生产发布和多租户；当前已补入本地单机 Web 控制台，作为 CLI 之外的自动化入口。
 
 ## 2. v0.1 技术范围
 
@@ -34,6 +34,7 @@ depends_on:
 单一 Python/FastAPI 示例项目
 单一 Change 的单一活动 Run
 CLI 交互
+本地 FastAPI Web 控制台和 SQLite 任务索引
 本地 Markdown/YAML 产物
 本地 append-only 运行事件
 模拟 Agent / 模拟工具执行器
@@ -50,7 +51,7 @@ CLI 交互
 多项目、多租户、团队权限
 真实 CI/CD 回调
 多语言代码适配
-Web UI
+多租户 Web 平台、团队权限和登录态
 自动创建 PR、合并分支或覆盖用户当前工作树
 ```
 
@@ -103,13 +104,15 @@ flowchart TB
 | `ChangeService` | 创建、读取和校验 Change | Python service + YAML |
 | `WorkflowService` | 启动、暂停、恢复和推进 Run | 自有状态机 |
 | `ArtifactService` | 创建、审批、读取和失效产物 | Git 文件 + frontmatter |
-| `GateService` | 执行自动规则并汇总人工审批 | Python Policy evaluator |
+| `GateService` | 执行自动规则、计算评分并决定阶段推进 | Python Policy evaluator |
 | `ToolGateway` | 拦截、授权和审计所有工具调用 | 强制 Python 入口 |
 | `WorktreeService` | 检查仓库、创建和回收隔离 worktree | Git CLI Adapter |
 | `VerificationService` | 执行验证命令并保存证据 | 白名单 Command Runner |
 | `TraceService` | 校验和查询 TraceLink | YAML 索引 + 图校验 |
 | `RunStore` | 追加事件、重建状态、查询运行 | JSONL + index.yaml |
 | `AgentPort` | 生成结构化草稿 | Fake Agent first |
+
+GateService 的详细门禁、评分、回退和防幻觉契约见 [VAF-Gate-Design.md](./VAF-Gate-Design.md)。M0 的 GateService 执行确定性结构、引用、可验证性和代码质量检查；模型输出不能替代硬规则和证据，`autopilot` 不等待人工审批。
 
 ## 4. 领域模型
 
@@ -329,6 +332,7 @@ StageStarted
 ArtifactDrafted
 ArtifactApproved
 ArtifactChangesRequested
+GateEvaluated
 StageBlocked
 ToolInvocationRequested
 PolicyDecisionMade
@@ -560,7 +564,7 @@ CreateChange
 3. 创建 worktree 前申请 `change_id` 级锁。
 4. Worktree 路径由 VAF 在项目专用临时目录生成，Agent 不得指定。
 5. 生成前记录基线 commit；生成后只允许白名单路径变化。
-6. 验证失败时保留 worktree 和 diff，等待 `resume` 或人工处理。
+6. 验证失败时保留 worktree 和 diff，等待 `resume` 或 `autopilot` 进入下一轮修复。
 7. v0.1 不自动删除 worktree；后续版本提供显式清理命令，并先展示目标。
 
 当前 M0 已将 worktree 创建、文件写入和验证命令接入 ToolGateway；验证失败后保留 worktree，但 CLI 暂不提供自动重试或清理命令。
@@ -571,6 +575,7 @@ CreateChange
 
 ```yaml
 verification:
+  default_command: unit-test
   commands:
     - id: format-check
       argv: ["ruff", "format", "--check", "."]
@@ -587,6 +592,8 @@ verification:
 ```
 
 系统不接受 Agent 提供的任意 Shell 字符串作为验证命令；Command Runner 只执行已经解析、归一化并通过策略的 `argv`。
+
+M0 的 `verify` 读取 `.vaf/manifest.yaml` 中的 `verification.default_command`，将选中的 `command_id`、`argv` 和 `network` 规格计算为 `command_spec_hash`。该哈希与 workspace 指纹一起进入验证幂等键；manifest 命令规格变化后不会复用旧验证结果。manifest 不能扩大 PolicyEngine 的内置命令白名单，网络模式不是 `disabled` 时请求会被拒绝。
 
 ### 9.3 验证证据
 
@@ -654,6 +661,8 @@ M0 的实现不从代码 diff 自动推断语义关系，而要求实施计划�
 | `VAF-TOOL-001` | 工具执行失败 | 查看 Evidence 和退出码 |
 | `VAF-TOOL-002` | 工具状态不明 | 阻塞并人工确认外部状态 |
 | `VAF-TRACE-001` | 追踪关系断链 | 补充 TraceLink 或重新生成 |
+| `VAF-MANIFEST-001` | 验证 manifest 无效 | 修复默认命令、argv 或命令配置 |
+| `VAF-GATE-001` | 阶段门禁未通过 | 查看评分和 findings，修复目标阶段后重新评审 |
 | `VAF-BUDGET-001` | Run 预算耗尽 | 审批追加预算或终止 Run |
 
 ### 11.2 错误处理规则
@@ -662,7 +671,8 @@ M0 的实现不从代码 diff 自动推断语义关系，而要求实施计划�
 - 工具非零退出码保留为真实失败证据，不能被自然语言总结覆盖。
 - 不确定的外部副作用进入 `BLOCKED`，不自动重试。
 - 可重试的模型/读取类错误使用有限指数退避，并增加 `attempt`。
-- 每次自动修复有最大次数和预算，超过后转人工处理。
+- Web 主流程不因固定重试次数停止；普通 `NEEDS_CHANGES` 持续自动修复和重跑。CLI 可选 `--max-attempts` 仅用于调试或测试边界。
+- P0 安全违规、缺失可信事实、悬空引用和状态不明仍进入 `BLOCKED`，这是证据不足的安全状态，不是重试预算耗尽。
 
 ## 12. 可观测性与审计
 
@@ -808,6 +818,10 @@ project/vaf/
 
 已用固定文件计划跑通隔离 worktree、逐文件写入、范围校验、进程中断后幂等恢复和 worktree 内 unittest 验证；真实 FastAPI 业务生成和真实 LLM 仍保留在后续 Slice。
 
+### Slice 7：Web 控制平面
+
+已接入 FastAPI Web 控制台、SQLite JobStore、Markdown/PDF/DOCX/HTML/TXT 摄取、公共飞书 HTTPS 文档读取、确定性技术栈选择和 PRD 到 FastAPI + React/Vite（或 Vue/Vite）项目模板生成。Web 任务复用 `LocalWorkflow.autopilot`，仍经过 Artifact Gate、worktree、验证和 Trace 质量门，并支持生成项目路径和 ZIP 下载。
+
 ## 16. 架构决策记录
 
 ### ADR-001：v0.1 采用自有状态机，不直接绑定 LangGraph
@@ -849,12 +863,13 @@ project/vaf/
 
 ## 18. 当前实现状态与下一步
 
-当前 M0 已完成 Slice 1–6 的最小可运行闭环，并有 29 个 unittest 覆盖领域、Policy、审批旧哈希拒绝、事件恢复、worktree、代码写入、验证证据失效和 CLI 集成场景。代码生成仍使用显式文件计划驱动的 FakeAgent；当前只实现显式 TraceLink 和覆盖率质量门，真实 LLM、语义关系自动推断、CI/CD 和部署适配器不在当前实现内。
+当前 M0 已完成 Slice 1–7 的最小可运行闭环，并有 44 个 unittest 覆盖领域、Policy、Gate 评分、P1 驳回回退和 P0 阻断、审批旧哈希拒绝、事件恢复、worktree、代码写入、manifest 验证命令、验证证据失效、文档摄取和 Web 集成场景。代码生成仍使用显式文件计划驱动的确定性本地 Agent；当前已实现确定性产物 Gate、代码质量评分、商城高信号领域契约、显式 TraceLink、覆盖率质量门、无人工 `autopilot` 和 Web 上传入口，真实 LLM、需要登录的飞书文档、语义关系自动推断、CI/CD 和部署适配器不在当前实现内。
 
 下一批实现建议为：
 
 ```text
-1. AgentPort Provider：接入一个真实 LLM Provider，保留 Fake Agent 作为确定性回归夹具。
-2. 产物依赖失效传播：在多阶段上游版本变化时阻止下游旧产物继续执行。
-3. 回归测试与 CI/CD Adapter：先 staging，再设计生产审批和回滚。
+1. AgentPort Provider：接入一个真实 LLM Provider，保留本地模板 Agent 作为确定性回归夹具。
+2. 飞书 OAuth/API 和更严格的来源权限校验，支持非公开文档的受控读取。
+3. 产物依赖失效传播：在多阶段上游版本变化时阻止下游旧产物继续执行。
+4. 回归测试与 CI/CD Adapter：先 staging，再设计生产发布和回滚。
 ```

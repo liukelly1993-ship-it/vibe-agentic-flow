@@ -7,15 +7,164 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 from vaf.adapters.git_worktree import GitWorktreeManager
 from vaf.adapters.jsonl_event_store import JsonlEventStore
 from vaf.adapters.tool_gateway import LocalFileAdapter, ToolGateway
-from vaf.application.local_workflow import LocalWorkflow
+from vaf.agents.fake_agent import DraftResult, FakeAgent
+from vaf.application.local_workflow import LocalWorkflow, WorkflowError
 from vaf.domain.events import EventEnvelope
 from vaf.policy.engine import PolicyEngine, ToolRequest
 
 
 class LocalWorkflowCliTests(unittest.TestCase):
+    def test_autopilot_completes_score_gated_flow_without_human_approval(self) -> None:
+        project = Path(__file__).parents[2]
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "demo"
+            self._init_repo(repo)
+            spec = Path(directory) / "implementation.yaml"
+            spec.write_text(
+                """implementation:
+  changes:
+    - task_id: TASK-001
+      path: generated.py
+      requirement_ids: [REQ-001]
+      content: |
+        VALUE = 1
+    - task_id: TASK-001
+      path: tests/test_generated.py
+      acceptance_ids: [AC-001, AC-002]
+      test_ids: [TC-001]
+      content: |
+        import unittest
+        import generated
+
+        class GeneratedTests(unittest.TestCase):
+            def test_value(self):
+                self.assertEqual(generated.VALUE, 1)
+    - task_id: TASK-001
+      path: tests/__init__.py
+      content: |
+""",
+                encoding="utf-8",
+            )
+            result = json.loads(
+                self._cli(
+                    project,
+                    repo,
+                    "autopilot",
+                    "--change",
+                    "CHG-AUTO",
+                    "--title",
+                    "Autopilot generated change",
+                    "--objective",
+                    "验证无人工评分门禁闭环",
+                    "--implementation-spec",
+                    str(spec),
+                )
+            )
+            self.assertEqual(result["state"]["status"], "VERIFIED")
+            self.assertEqual(result["trace"]["status"], "passed")
+            self.assertGreater(result["trace"]["quality_gate"]["score"], 90)
+    def test_score_rejection_returns_to_current_artifact_stage(self) -> None:
+        project = Path(__file__).parents[2]
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "demo"
+            self._init_repo(repo)
+
+            class InvalidPrdAgent(FakeAgent):
+                def draft_prd(self, change_id: str, title: str, objective: str, version: int = 1) -> DraftResult:
+                    return DraftResult(
+                        artifact_type="prd",
+                        content="""---
+artifact_id: PRD-CHG-GATE
+artifact_type: prd
+change_id: CHG-GATE
+version: 1
+status: waiting_review
+created_by: invalid-agent
+created_at: 2026-08-05T00:00:00Z
+---
+
+## 问题与目标
+
+未定义稳定需求。
+
+## REQ-001
+
+WHEN 用户提交需求
+THE SYSTEM SHALL 返回结果
+
+## 验收条件
+
+AC-001：需要自动化测试验证。
+
+TODO：补充异常场景。
+""",
+                        assumptions=(),
+                        questions=("异常场景仍需补充",),
+                    )
+
+            workflow = LocalWorkflow(repo, agent=InvalidPrdAgent())
+            state = workflow.run("CHG-GATE", "Invalid gate", "验证门禁驳回")
+            with self.assertRaisesRegex(WorkflowError, "VAF-GATE-001"):
+                workflow.approve(state.run_id, "reviewer", state.artifact_hash or "")
+            rejected = workflow.state(state.run_id)
+            self.assertEqual(rejected.status, "CHANGES_REQUESTED")
+            events = self._events(repo, state.run_id)
+            changes_event = next(event for event in reversed(events) if event["event_type"] == "ArtifactChangesRequested")
+            self.assertEqual(changes_event["payload"]["correction_target_stage"], "prd")
+
+    def test_p0_gate_failure_blocks_without_automatic_retry(self) -> None:
+        project = Path(__file__).parents[2]
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "demo"
+            self._init_repo(repo)
+
+            class UnsafePrdAgent(FakeAgent):
+                def draft_prd(self, change_id: str, title: str, objective: str, version: int = 1) -> DraftResult:
+                    return DraftResult(
+                        artifact_type="prd",
+                        content="""---
+artifact_id: PRD-CHG-BLOCKED
+artifact_type: prd
+change_id: CHG-BLOCKED
+version: 1
+status: waiting_review
+created_by: unsafe-agent
+created_at: 2026-08-05T00:00:00Z
+---
+
+## 问题与目标
+
+目标。
+
+## REQ-001
+
+WHEN 用户提交需求
+THE SYSTEM SHALL 返回结果
+
+## 验收条件
+
+- AC-001：验证结果。
+
+[BLOCKED] 关键业务事实缺失。
+""",
+                        assumptions=(),
+                        questions=("缺少可信业务事实",),
+                    )
+
+            workflow = LocalWorkflow(repo, agent=UnsafePrdAgent())
+            state = workflow.run("CHG-BLOCKED", "Blocked gate", "验证 P0 阻断")
+            with self.assertRaisesRegex(WorkflowError, "VAF-GATE-001"):
+                workflow.approve(state.run_id, "gate-engine", state.artifact_hash or "")
+            blocked = workflow.state(state.run_id)
+            self.assertEqual(blocked.status, "BLOCKED")
+            events = self._events(repo, state.run_id)
+            self.assertEqual(events[-1]["event_type"], "GateBlocked")
+
     def test_approve_rejects_stale_target_hash(self) -> None:
         project = Path(__file__).parents[2]
         with tempfile.TemporaryDirectory() as directory:
@@ -95,6 +244,8 @@ class LocalWorkflowCliTests(unittest.TestCase):
             self.assertEqual(resumed["status"], "WAITING_REVIEW")
             reviewed = json.loads(self._cli(project, repo, "review", "--run", run_id))
             self.assertEqual(reviewed["metadata"]["status"], "waiting_review")
+            self.assertEqual(reviewed["gate"]["decision"], "PASS")
+            self.assertGreater(reviewed["gate"]["score"], 90)
 
     def test_approve_full_pipeline_verify_and_trace(self) -> None:
         project = Path(__file__).parents[2]
@@ -211,8 +362,42 @@ class LocalWorkflowCliTests(unittest.TestCase):
             trace = json.loads(self._cli(project, repo, "trace", "--run", run_id))
             self.assertEqual(trace["status"], "passed")
             self.assertTrue(trace["verification_matches_workspace"])
+            self.assertTrue(trace["verification_matches_command"])
             self.assertEqual(trace["coverage"]["acceptance_ratio"], 1.0)
             self.assertEqual(trace["coverage"]["code_explainability_ratio"], 1.0)
+            self.assertEqual(trace["quality_gate"]["decision"], "PASS")
+            self.assertGreater(trace["quality_gate"]["score"], 90)
+            manifest_path = repo / ".vaf" / "manifest.yaml"
+            manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+            manifest["verification"]["default_command"] = "manifest-unit-test"
+            manifest["verification"]["commands"].append(
+                {
+                    "id": "manifest-unit-test",
+                    "argv": ["python", "-m", "unittest", "discover", "-s", "tests", "-t", "."],
+                    "network": "disabled",
+                }
+            )
+            manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+            verified_from_manifest = json.loads(self._cli(project, repo, "verify", "--run", run_id))
+            self.assertEqual(verified_from_manifest["status"], "VERIFIED")
+            events = self._events(repo, run_id)
+            verification_event = next(
+                event for event in reversed(events) if event["event_type"] == "VerificationCompleted"
+            )
+            self.assertEqual(verification_event["payload"]["command_id"], "manifest-unit-test")
+            manifest["verification"]["commands"][-1]["network"] = "enabled"
+            manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+            denied = json.loads(self._cli(project, repo, "verify", "--run", run_id))
+            self.assertEqual(denied["status"], "FAILED")
+            events = self._events(repo, run_id)
+            policy_event = next(
+                event for event in reversed(events) if event["event_type"] == "PolicyDecisionMade"
+            )
+            self.assertEqual(policy_event["payload"]["decision"], "DENY")
+            verified_again = json.loads(self._cli(project, repo, "verify", "--run", run_id))
+            self.assertEqual(verified_again["status"], "FAILED")
+            manifest["verification"]["commands"][-1]["network"] = "disabled"
+            manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
             verified_again = json.loads(self._cli(project, repo, "verify", "--run", run_id))
             self.assertEqual(verified_again["status"], "VERIFIED")
             (worktree / "tests" / "test_generated.py").write_text(
@@ -224,6 +409,7 @@ class LocalWorkflowCliTests(unittest.TestCase):
             trace_after_change = json.loads(self._cli(project, repo, "trace", "--run", run_id))
             self.assertEqual(trace_after_change["status"], "incomplete")
             self.assertTrue(trace_after_change["verification_matches_workspace"])
+            self.assertEqual(trace_after_change["quality_gate"]["decision"], "BLOCKED")
 
     def test_implementation_recovers_after_first_file_write(self) -> None:
         project = Path(__file__).parents[2]
@@ -343,6 +529,11 @@ class LocalWorkflowCliTests(unittest.TestCase):
         (repo / "README.md").write_text("demo\n", encoding="utf-8")
         self._git(repo, "add", "README.md")
         self._git(repo, "commit", "-m", "initial")
+
+    @staticmethod
+    def _events(repo: Path, run_id: str) -> list[dict[str, object]]:
+        path = repo / ".vaf" / "runs" / run_id / "events.jsonl"
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
     @staticmethod
     def _cli(project: Path, repo: Path, *args: str) -> str:

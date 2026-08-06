@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 
@@ -19,6 +19,7 @@ from vaf.agents.fake_agent import DraftResult, FakeAgent
 from vaf.application.run_projection import RunState, project_events
 from vaf.domain.artifacts import ArtifactVersion, split_frontmatter
 from vaf.domain.events import EventEnvelope
+from vaf.domain.gates import evaluate_artifact_gate, evaluate_code_gate, validate_domain_contract
 from vaf.domain.ids import new_id
 from vaf.domain.states import StageCommand, StageStatus, TransitionError, transition
 from vaf.domain.trace import TraceLink, TraceRelation, calculate_coverage, validate_links
@@ -58,6 +59,7 @@ class LocalWorkflow:
                 "project_root": str(self.project_root),
                 "profile": "standard",
                 "verification": {
+                    "default_command": "unit-test",
                     "commands": [
                         {
                             "id": "unit-test",
@@ -127,6 +129,94 @@ class LocalWorkflow:
         self._write_run_index(run_id, change_id)
         return self.state(run_id)
 
+    def autopilot(
+        self,
+        change_id: str,
+        title: str,
+        objective: str,
+        source: str = "autopilot",
+        implementation_spec: str | Path | None = None,
+        max_attempts: int | None = None,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
+        """Run the score-gated workflow without waiting for human approval.
+
+        ``max_attempts`` is an optional diagnostic cap for tests or bounded CLI
+        runs. The Web control plane leaves it unset and does not stop a normal
+        score-repair loop because an arbitrary retry count was reached.
+        """
+
+        if max_attempts is not None and max_attempts < 1:
+            raise WorkflowError("VAF-AUTOPILOT-001: max_attempts must be >= 1")
+        state = self.run(change_id, title, objective, source, implementation_spec)
+        gate_attempts: dict[str, int] = {}
+        last_gate_error = ""
+        steps = 0
+        max_steps = max_attempts * 10 + 10 if max_attempts is not None else None
+
+        def notify(extra: dict[str, Any] | None = None) -> None:
+            if progress_callback is None:
+                return
+            payload: dict[str, Any] = {
+                "run_id": state.run_id,
+                "step": steps,
+                "status": state.status,
+                "stage": state.current_stage,
+                "attempt": gate_attempts.get(state.current_stage or "", 0),
+            }
+            if extra:
+                payload.update(extra)
+            try:
+                progress_callback(payload)
+            except Exception:
+                # Progress reporting cannot change workflow correctness.
+                pass
+
+        while max_steps is None or steps < max_steps:
+            steps += 1
+            notify()
+            if state.status == "WAITING_REVIEW":
+                stage = state.current_stage or "unknown"
+                gate_attempts[stage] = gate_attempts.get(stage, 0) + 1
+                if max_attempts is not None and gate_attempts[stage] > max_attempts:
+                    raise WorkflowError(
+                        f"VAF-AUTOPILOT-004: gate retry budget exhausted at stage {stage}; "
+                        f"{last_gate_error or 'no gate result'}"
+                    )
+                try:
+                    state = self.approve(
+                        state.run_id,
+                        "gate-engine",
+                        state.artifact_hash or "",
+                        "automatic score gate passed",
+                    )
+                except WorkflowError as exc:
+                    last_gate_error = str(exc)
+                    state = self.state(state.run_id)
+                    notify({"error": last_gate_error})
+                    if state.status != "CHANGES_REQUESTED":
+                        raise
+                continue
+            if state.status in {"CHANGES_REQUESTED", "APPROVED"}:
+                state = self.resume(state.run_id)
+                continue
+            if state.status == "READY_FOR_IMPLEMENTATION":
+                state = self.implement(state.run_id)
+                continue
+            if state.status == "IMPLEMENTED":
+                state = self.verify(state.run_id)
+                continue
+            if state.status in {"VERIFIED", "FAILED"}:
+                trace = self.trace(state.run_id)
+                if trace["status"] == "passed":
+                    return {"state": self.state(state.run_id).__dict__, "trace": trace}
+                raise WorkflowError(
+                    f"VAF-AUTOPILOT-002: quality gate did not pass; {trace['quality_gate']['decision']} "
+                    f"score={trace['quality_gate']['score']:.2f}"
+                )
+            raise WorkflowError(f"VAF-AUTOPILOT-003: unsupported workflow status: {state.status}")
+        raise WorkflowError(f"VAF-AUTOPILOT-005: diagnostic workflow step budget exhausted; {last_gate_error or 'no gate result'}")
+
     def state(self, run_id: str) -> RunState:
         store = self._store(run_id)
         try:
@@ -141,7 +231,9 @@ class LocalWorkflow:
             raise WorkflowError("run has no reviewable artifact")
         content = Path(state.artifact_path).read_text(encoding="utf-8")
         metadata, body = split_frontmatter(content)
-        return {"state": state.__dict__, "metadata": _json_safe(metadata), "body": body}
+        artifact = ArtifactVersion.from_markdown(content)
+        gate = evaluate_artifact_gate(artifact.artifact_type.value, content, target_hash=artifact.content_hash)
+        return {"state": state.__dict__, "metadata": _json_safe(metadata), "body": body, "gate": gate.to_dict()}
 
     def approve(self, run_id: str, actor: str, target_hash: str, comment: str = "") -> RunState:
         state = self.state(run_id)
@@ -152,6 +244,42 @@ class LocalWorkflow:
         current_artifact = ArtifactVersion.from_markdown(content)
         if current_artifact.content_hash != target_hash:
             raise WorkflowError("VAF-APPROVAL-STALE: artifact changed after review; review it again")
+        gate = evaluate_artifact_gate(current_artifact.artifact_type.value, content, target_hash=target_hash)
+        self._append_event(
+            run_id,
+            EventEnvelope.create(
+                event_type="GateEvaluated",
+                run_id=run_id,
+                change_id=state.change_id,
+                actor="system",
+                payload=gate.to_dict(),
+            ),
+        )
+        if not gate.passed:
+            finding = gate.findings[0].message if gate.findings else "score is not above the gate threshold"
+            event_type = "GateBlocked" if gate.decision.value == "BLOCKED" else "ArtifactChangesRequested"
+            self._append_event(
+                run_id,
+                EventEnvelope.create(
+                    event_type=event_type,
+                    run_id=run_id,
+                    change_id=state.change_id,
+                    actor="system",
+                    payload={
+                        "artifact_id": state.artifact_id,
+                        "target_hash": target_hash,
+                        "comment": f"Gate rejected: {finding}",
+                        "correction_target_stage": state.current_stage,
+                        "gate_decision": gate.decision.value,
+                        "gate_score": gate.score,
+                        "recovery_condition": "补充新的可信输入后重新运行" if gate.decision.value == "BLOCKED" else "重新生成当前阶段产物",
+                    },
+                ),
+            )
+            self._write_run_index(run_id, state.change_id)
+            raise WorkflowError(
+                f"VAF-GATE-001: {gate.decision.value}, score={gate.score:.2f}, threshold>{gate.threshold:.2f}; {finding}"
+            )
         metadata, body = split_frontmatter(content)
         metadata["version"] = int(metadata["version"]) + 1
         metadata["status"] = "approved"
@@ -407,14 +535,16 @@ class LocalWorkflow:
         store = self._store(run_id)
         workspace_root = Path(state.worktree_path) if state.worktree_path else self.project_root
         workspace_fingerprint = GitWorktreeManager.workspace_fingerprint(workspace_root)
+        command_id, argv, network_mode, command_spec_hash = self._load_verification_command()
         request = ToolRequest(
             tool_name="run_command",
-            args={"argv": ["python", "-m", "unittest", "discover", "-s", "tests", "-t", "."]},
+            args={"argv": list(argv)},
             workspace_root=workspace_root,
+            network_mode=network_mode,
             run_id=run_id,
             change_id=state.change_id,
             stage_run_id=state.current_stage,
-            idempotency_key=f"verify:{state.current_stage}:{workspace_fingerprint}",
+            idempotency_key=f"verify:{state.current_stage}:{workspace_fingerprint}:{command_spec_hash}",
         )
         gateway = ToolGateway(PolicyEngine(), {"run_command": LocalCommandAdapter()}, store)
         result = gateway.execute(request)
@@ -426,6 +556,9 @@ class LocalWorkflow:
                 change_id=state.change_id,
                 payload={
                     "invocation_id": result.invocation_id,
+                    "command_id": command_id,
+                    "argv": list(argv),
+                    "command_spec_hash": command_spec_hash,
                     "exit_code": result.output.exit_code if result.output else None,
                     "error_code": result.error_code,
                     "workspace_fingerprint": workspace_fingerprint,
@@ -506,6 +639,12 @@ class LocalWorkflow:
                 code_file_refs.add(file_ref)
 
         latest_verification = verification[-1] if verification else None
+        current_command_spec_hash: str | None = None
+        manifest_error: str | None = None
+        try:
+            _command_id, _argv, _network_mode, current_command_spec_hash = self._load_verification_command()
+        except WorkflowError as exc:
+            manifest_error = str(exc)
         current_workspace_fingerprint = (
             GitWorktreeManager.workspace_fingerprint(state.worktree_path)
             if state.worktree_path
@@ -516,20 +655,65 @@ class LocalWorkflow:
             and current_workspace_fingerprint
             and latest_verification.get("workspace_fingerprint") == current_workspace_fingerprint
         )
+        verification_matches_command = bool(
+            latest_verification
+            and current_command_spec_hash
+            and latest_verification.get("command_spec_hash") == current_command_spec_hash
+        )
         passed_test_ids = {
             str(test_id)
             for event in code_events
             for test_id in event.payload.get("test_ids", [])
-        } if verification_matches_workspace and latest_verification.get("exit_code") == 0 else set()
+        } if verification_matches_workspace and verification_matches_command and latest_verification.get("exit_code") == 0 else set()
         acceptance_ids = {ref for ref in valid_refs if ref.startswith("AC-")}
         coverage = calculate_coverage(acceptance_ids, passed_test_ids, links, code_file_refs)
         validation_errors = validate_links(links, valid_refs)
+        if manifest_error:
+            validation_errors.append(manifest_error)
+        prd_payload = approved_artifacts.get("prd")
+        prd_content = ""
+        if prd_payload:
+            try:
+                prd_content = Path(str(prd_payload["path"])).read_text(encoding="utf-8")
+            except (KeyError, OSError, UnicodeDecodeError):
+                validation_errors.append("approved PRD evidence is unreadable")
+        validation_errors.extend(
+            validate_domain_contract(prd_content, state.worktree_path, tuple(state.changed_paths))
+        )
+        change = self._load_change(state.change_id)
+        implementation = change.get("implementation")
+        declared_paths: set[str] = set()
+        planned_lines = 0
+        if isinstance(implementation, dict) and isinstance(implementation.get("changes"), list):
+            for item in implementation["changes"]:
+                if isinstance(item, dict) and isinstance(item.get("path"), str):
+                    declared_paths.add(str(item["path"]))
+                    if isinstance(item.get("content"), str):
+                        planned_lines += len(str(item["content"]).splitlines())
+        verification_exit_code = (
+            latest_verification.get("exit_code")
+            if verification_matches_workspace and verification_matches_command and latest_verification
+            else None
+        )
+        quality_gate = evaluate_code_gate(
+            worktree_path=state.worktree_path,
+            changed_paths=tuple(state.changed_paths),
+            declared_paths=declared_paths,
+            planned_lines=planned_lines,
+            acceptance_ratio=coverage.acceptance_ratio,
+            code_explainability_ratio=coverage.code_explainability_ratio,
+            validation_errors=validation_errors,
+            verification_exit_code=verification_exit_code,
+            target_hash=current_workspace_fingerprint,
+        )
         quality_passed = (
             bool(code_events)
             and verification_matches_workspace
+            and verification_matches_command
             and latest_verification.get("exit_code") == 0
             and coverage.passed
             and not validation_errors
+            and quality_gate.passed
         )
         report = {
             "run_id": run_id,
@@ -544,12 +728,14 @@ class LocalWorkflow:
             },
             "verification": latest_verification,
             "verification_matches_workspace": verification_matches_workspace,
+            "verification_matches_command": verification_matches_command,
             "coverage": {
                 **coverage.__dict__,
                 "acceptance_ratio": coverage.acceptance_ratio,
                 "code_explainability_ratio": coverage.code_explainability_ratio,
                 "passed": coverage.passed,
             },
+            "quality_gate": quality_gate.to_dict(),
             "validation_errors": validation_errors,
             "trace_links": [
                 {
@@ -609,6 +795,46 @@ class LocalWorkflow:
         if not isinstance(value, dict):
             raise WorkflowError(f"invalid change file: {path}")
         return value
+
+    def _load_verification_command(self) -> tuple[str, tuple[str, ...], str, str]:
+        path = self.vaf_root / "manifest.yaml"
+        try:
+            manifest = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as exc:
+            raise WorkflowError(f"VAF-MANIFEST-001: cannot read verification manifest: {exc}") from exc
+        if not isinstance(manifest, dict) or not isinstance(manifest.get("verification"), dict):
+            raise WorkflowError("VAF-MANIFEST-001: manifest requires a verification mapping")
+        verification = manifest["verification"]
+        commands = verification.get("commands")
+        if not isinstance(commands, list) or not commands:
+            raise WorkflowError("VAF-MANIFEST-001: verification.commands must be a non-empty list")
+        default_command = verification.get("default_command")
+        if default_command is None and isinstance(commands[0], dict):
+            default_command = commands[0].get("id")
+        if not isinstance(default_command, str) or not default_command.strip():
+            raise WorkflowError("VAF-MANIFEST-001: verification.default_command is required")
+        selected: dict[str, Any] | None = None
+        for command in commands:
+            if not isinstance(command, dict) or not isinstance(command.get("id"), str):
+                raise WorkflowError("VAF-MANIFEST-001: each verification command requires an id")
+            if command["id"] == default_command:
+                selected = command
+        if selected is None:
+            raise WorkflowError(f"VAF-MANIFEST-001: verification command not found: {default_command}")
+        raw_argv = selected.get("argv")
+        if not isinstance(raw_argv, list) or not raw_argv or not all(isinstance(item, str) and item for item in raw_argv):
+            raise WorkflowError(f"VAF-MANIFEST-001: invalid argv for verification command: {default_command}")
+        network_mode = selected.get("network", "disabled")
+        if not isinstance(network_mode, str) or not network_mode:
+            raise WorkflowError(f"VAF-MANIFEST-001: invalid network mode for verification command: {default_command}")
+        normalized = json.dumps(
+            {"command_id": default_command, "argv": raw_argv, "network": network_mode},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        command_spec_hash = f"sha256:{hashlib.sha256(normalized.encode('utf-8')).hexdigest()}"
+        return default_command, tuple(raw_argv), network_mode, command_spec_hash
 
     def _write_artifact(self, change_id: str, draft: DraftResult, version: int) -> dict[str, Any]:
         content = draft.content

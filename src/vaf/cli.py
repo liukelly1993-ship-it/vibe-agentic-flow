@@ -23,6 +23,14 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--source", default="cli")
     run.add_argument("--implementation-spec", help="包含 implementation.changes 的 YAML 文件")
 
+    autopilot = subparsers.add_parser("autopilot", help="仅依赖评分门禁自动推进完整 M0 流程")
+    autopilot.add_argument("--change", required=True)
+    autopilot.add_argument("--title", required=True)
+    autopilot.add_argument("--objective", required=True)
+    autopilot.add_argument("--source", default="autopilot")
+    autopilot.add_argument("--implementation-spec", help="包含 implementation.changes 的 YAML 文件")
+    autopilot.add_argument("--max-attempts", type=int, default=None, help="可选的调试重试上限；默认不限制")
+
     for name in ("status", "review", "resume", "implement", "verify", "trace"):
         command = subparsers.add_parser(name)
         command.add_argument("--run", required=True)
@@ -58,6 +66,17 @@ def main(argv: list[str] | None = None) -> int:
                 args.implementation_spec,
             )
             print(json.dumps(state.__dict__, ensure_ascii=False, indent=2))
+            return 0
+        if args.command == "autopilot":
+            result = workflow.autopilot(
+                args.change,
+                args.title,
+                args.objective,
+                args.source,
+                args.implementation_spec,
+                args.max_attempts,
+            )
+            print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0
         if args.command == "status":
             print(json.dumps(workflow.state(args.run).__dict__, ensure_ascii=False, indent=2))

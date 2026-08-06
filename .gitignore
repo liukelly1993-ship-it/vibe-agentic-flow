@@ -66,3 +66,6 @@ Desktop.ini
 # ============ 项目特定:diagram 资源生成物 ============
 # 源文件(.svg / .png / role/*.md)保留,仅忽略可能的导出缓存
 diagram/**/*.cache
+
+# ============ VAF 本地 Web 运行数据 ==========
+.vaf-web/

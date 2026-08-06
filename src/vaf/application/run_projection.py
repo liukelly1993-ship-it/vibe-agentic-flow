@@ -62,6 +62,8 @@ def project_events(events: list[EventEnvelope]) -> RunState:
             )
         elif event.event_type == "ArtifactChangesRequested":
             state = replace(state, status="CHANGES_REQUESTED")
+        elif event.event_type == "GateBlocked":
+            state = replace(state, status="BLOCKED")
         elif event.event_type == "WorktreeCreated":
             state = replace(
                 state,

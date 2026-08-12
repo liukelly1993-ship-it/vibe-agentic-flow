@@ -39,14 +39,20 @@ class PolicyDecision:
 class PolicyEngine:
     """Evaluate tool requests before any adapter is invoked."""
 
-    def __init__(self, allowed_commands: set[tuple[str, ...]] | None = None) -> None:
+    def __init__(
+        self,
+        allowed_commands: set[tuple[str, ...]] | None = None,
+        allowed_network_modes: set[str] | None = None,
+    ) -> None:
         self.allowed_commands = allowed_commands or {
             ("ruff", "format", "--check", "."),
             ("ruff", "check", "."),
             ("pytest", "-q"),
             ("python", "-m", "unittest"),
             ("python", "-m", "unittest", "discover", "-s", "tests", "-t", "."),
+            ("docker", "compose", "config", "--quiet"),
         }
+        self.allowed_network_modes = allowed_network_modes or {"disabled"}
         self._counter = 0
 
     def evaluate(self, request: ToolRequest) -> PolicyDecision:
@@ -57,10 +63,10 @@ class PolicyEngine:
                 decision_id, PolicyDecisionType.DENY, "VAF-POLICY-DEFAULT-DENY",
                 f"tool is not available in v0.1: {request.tool_name}",
             )
-        if request.network_mode != "disabled":
+        if request.network_mode not in self.allowed_network_modes:
             return PolicyDecision(
                 decision_id, PolicyDecisionType.DENY, "VAF-POLICY-NETWORK",
-                "network must be disabled for v0.1 tool execution",
+                f"network mode is not allowed: {request.network_mode}",
             )
         if request.tool_name == "git_worktree_add":
             if not isinstance(request.args.get("change_id"), str) or not isinstance(request.args.get("run_id"), str):

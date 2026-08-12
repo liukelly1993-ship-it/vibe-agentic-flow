@@ -1,13 +1,18 @@
 ---
 artifact_id: TD-VAF-001
 artifact_type: technical-design
+change_id: CHG-VAF-001
 product: VAF
 status: draft
-version: 0.1
+version: 1
+release_version: "0.1"
 date: 2026-08-05
+created_by: tech-owner
+created_at: 2026-08-05T00:00:00+08:00
 owners:
   - tech-owner
-depends_on:
+depends_on: []
+source_documents:
   - VAF-PRD.md
   - vaf-架构评审报告.md
 ---
@@ -31,7 +36,9 @@ depends_on:
 
 ```text
 单一 Git 仓库
-单一 Python/FastAPI 示例项目
+Vue 3 + Vite 前端和 Python/FastAPI 后端
+PostgreSQL 默认数据库；PRD 明确要求时允许 MySQL
+Docker Compose 本地交付契约
 单一 Change 的单一活动 Run
 CLI 交互
 本地 FastAPI Web 控制台和 SQLite 任务索引
@@ -60,6 +67,10 @@ CLI 交互
 | 项目 | v0.1 决策 |
 |---|---|
 | 语言 | Python 3.11+ |
+| 生成前端 | Vue 3 + Vite |
+| 生成后端 | FastAPI |
+| 生成数据库 | PostgreSQL 默认；MySQL/MariaDB 显式选择 |
+| 本地交付 | Docker Compose；必须区分静态配置校验和真实容器运行验收 |
 | CLI | Typer 或同等 CLI 框架 |
 | 数据模型 | Pydantic 2 |
 | 运行时状态 | 本地 append-only `events.jsonl` + 可重建索引 |
@@ -111,6 +122,8 @@ flowchart TB
 | `TraceService` | 校验和查询 TraceLink | YAML 索引 + 图校验 |
 | `RunStore` | 追加事件、重建状态、查询运行 | JSONL + index.yaml |
 | `AgentPort` | 生成结构化草稿 | Fake Agent first |
+| `PrdAdmissionReview` | 评审原始 PRD、判断知识需求并阻断不完整输入 | 确定性 Rubric + 来源证据 |
+| `KnowledgeSnapshot` | 受限读取本地知识文件并固化文件/快照哈希 | ToolGateway + 允许根目录 |
 
 GateService 的详细门禁、评分、回退和防幻觉契约见 [VAF-Gate-Design.md](./VAF-Gate-Design.md)。M0 的 GateService 执行确定性结构、引用、可验证性、来源视觉证据和代码质量检查；模型输出不能替代硬规则和证据，`autopilot` 不等待人工审批。PRD 没有原型图片或页面截图时固定为 P0 `BLOCKED`，不会进入技术方案和代码生成。
 
@@ -820,7 +833,7 @@ project/vaf/
 
 ### Slice 7：Web 控制平面
 
-已接入 FastAPI Web 控制台、SQLite JobStore、Markdown/PDF/DOCX/HTML/TXT 摄取、公共飞书 HTTPS 文档读取、确定性技术栈选择和 PRD 到 FastAPI + React/Vite（或 Vue/Vite）项目模板生成。Web 任务复用 `LocalWorkflow.autopilot`，仍经过 Artifact Gate、worktree、验证和 Trace 质量门，并支持生成项目路径和 ZIP 下载。
+已接入 FastAPI Web 控制台、SQLite JobStore、Markdown/PDF/DOCX/HTML/TXT 摄取、公共飞书 HTTPS 文档读取，以及代码生成前的原始 PRD 准入评审。准入门采用 100 分确定性 Rubric，严格大于 90 且无 P0 才创建项目；涉及既有系统、内部规则、外部契约或受监管数据时要求受限本地知识库快照。生成技术基线固定为 FastAPI + Vue 3/Vite，数据库默认 PostgreSQL、显式要求时选择 MySQL。Web 任务复用 `LocalWorkflow.autopilot`，仍经过 Artifact Gate、worktree、验证和 Trace 质量门。
 
 ## 16. 架构决策记录
 
@@ -863,13 +876,14 @@ project/vaf/
 
 ## 18. 当前实现状态与下一步
 
-当前 M0 已完成 Slice 1–7 的最小可运行闭环，并有 51 个 unittest 覆盖领域、Policy、Gate 评分、P1 驳回回退和 P0 阻断、原型视觉证据、商城 PRD 需求/验收/测试生成、审批旧哈希拒绝、事件恢复、worktree、代码写入、manifest 验证命令、验证证据失效、文档摄取和 Web 集成场景。代码生成仍使用显式文件计划驱动的确定性本地 Agent；当前已实现确定性产物 Gate、代码质量评分、商城高信号领域契约、显式 TraceLink、覆盖率质量门、无人工 `autopilot` 和 Web 上传入口，真实 LLM、需要登录的飞书文档、语义关系自动推断、CI/CD 和部署适配器不在当前实现内。
+当前 M0 已完成 Slice 1–7 的最小可运行闭环，并已增加原始 PRD 准入评审、本地知识库允许根目录、知识快照哈希、知识引用传播、原型语义识别和固定 Vue/FastAPI 数据库选择。生成项目已包含 Compose、前后端 Dockerfile、数据库服务和健康检查，并通过 Policy Gateway 执行 `docker compose config --quiet` 以及 `up --build --wait → backend API → frontend HTTP → down --volumes` 真实运行验收。代码生成仍使用显式文件计划驱动的确定性本地 Agent；真实 LLM、通用业务语义生成、依赖锁、SBOM、需要登录的飞书文档、CI/CD 和生产部署适配器不在当前实现内。
 
 下一批实现建议为：
 
 ```text
 1. AgentPort Provider：接入一个真实 LLM Provider，保留本地模板 Agent 作为确定性回归夹具。
-2. 飞书 OAuth/API 和更严格的来源权限校验，支持非公开文档的受控读取。
-3. 产物依赖失效传播：在多阶段上游版本变化时阻止下游旧产物继续执行。
-4. 回归测试与 CI/CD Adapter：先 staging，再设计生产发布和回滚。
+2. 依赖锁、SBOM 和浏览器验收：在已有 Compose 运行门上增加可复现依赖和 Playwright 页面/原型验证。
+3. 飞书 OAuth/API 和更严格的来源权限校验，支持非公开文档的受控读取。
+4. 产物依赖失效传播：在多阶段上游版本变化时阻止下游旧产物继续执行。
+5. 回归测试与 CI/CD Adapter：先 staging，再设计生产发布和回滚。
 ```

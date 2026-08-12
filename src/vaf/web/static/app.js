@@ -135,6 +135,10 @@ function showActiveJob(job) {
   document.querySelector("#active-score").textContent = deliveryScore == null ? "pending" : `${Number(deliveryScore).toFixed(1)} / 100`;
   const frontendBuild = job.result?.frontend_validation;
   document.querySelector("#active-frontend").textContent = frontendBuild?.passed ? "passed" : ["FAILED", "BLOCKED"].includes(job.status) ? "not run" : "pending";
+  const composeValidation = job.result?.compose_validation;
+  document.querySelector("#active-compose").textContent = composeValidation?.passed ? "passed" : ["FAILED", "BLOCKED"].includes(job.status) ? "not run" : "pending";
+  const composeRuntime = job.result?.compose_runtime_validation;
+  document.querySelector("#active-compose-runtime").textContent = composeRuntime?.skipped ? "skipped" : composeRuntime?.passed ? "passed" : ["FAILED", "BLOCKED"].includes(job.status) ? "not run" : "pending";
   document.querySelector("#progress-label").textContent = phaseLabel(job.phase);
   document.querySelector("#progress-bar").style.width = `${phaseProgress(job.phase)}%`;
   document.querySelector("#active-error").textContent = job.error || job.progress?.error || "";
@@ -146,7 +150,7 @@ function showActiveJob(job) {
 
 function renderTimeline(phase) {
   const stages = [["Review", "PRD"], ["Plan", "方案"], ["Build", "代码"], ["Prove", "验证"], ["Deliver", "交付"]];
-  const index = ["queued", "reviewing-prd", "preparing-project", "score-gated-generation", "completed"].indexOf(phase);
+  const index = { queued: 0, "reviewing-prd": 0, "preparing-project": 1, "score-gated-generation": 2, completed: 4 }[phase] ?? 0;
   document.querySelector("#run-timeline").innerHTML = stages.map((stage, itemIndex) => {
     const state = itemIndex < index ? "is-done" : itemIndex === index ? "is-current" : "";
     return `<li class="${state}"><strong>${stage[0]}</strong><small>${stage[1]}</small></li>`;

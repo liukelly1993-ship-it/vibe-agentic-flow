@@ -154,16 +154,22 @@ def _detect_visual_evidence(suffix: str, content: bytes, text: str) -> bool:
     """Detect source-level visual evidence without trusting generated prose."""
 
     decoded = content.decode("utf-8", errors="ignore")
-    if re.search(r"!\[[^\]]*\]\([^\n)]+\)|<img\b[^>]*\bsrc\s*=", decoded, re.IGNORECASE):
+    visual_terms = r"原型|线框|页面|界面|交互|截图|prototype|wireframe|mockup|screen(?:shot)?|\bui\b|\bux\b"
+    markdown_images = re.findall(r"!\[([^\]]*)\]\(([^\n)]+)\)", decoded, re.IGNORECASE)
+    if any(re.search(visual_terms, f"{alt} {source}", re.IGNORECASE) for alt, source in markdown_images):
         return True
-    if re.search(r"!\[[^\]]*\]\([^\n)]+\)|<img\b", text, re.IGNORECASE):
+    html_images = re.findall(r"<img\b[^>]*>", decoded, re.IGNORECASE)
+    if any(re.search(visual_terms, tag, re.IGNORECASE) for tag in html_images):
         return True
     if suffix == ".pdf":
-        return bool(re.search(rb"/Subtype\s*/Image\b", content))
+        return bool(re.search(rb"/Subtype\s*/Image\b", content)) and bool(
+            re.search(visual_terms, text, re.IGNORECASE)
+        )
     if suffix == ".docx":
         try:
             with zipfile.ZipFile(BytesIO(content)) as archive:
-                return any(name.startswith("word/media/") for name in archive.namelist())
+                has_media = any(name.startswith("word/media/") for name in archive.namelist())
+                return has_media and bool(re.search(visual_terms, text, re.IGNORECASE))
         except zipfile.BadZipFile:
             return False
     return False

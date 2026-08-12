@@ -35,3 +35,19 @@ class PolicyEngineTests(unittest.TestCase):
             with self.subTest(tool_name=tool_name):
                 decision = self.engine.evaluate(ToolRequest(tool_name, {}, self.workspace))
                 self.assertEqual(decision.decision, PolicyDecisionType.DENY)
+
+    def test_explicit_dependency_install_network_mode_can_be_scoped(self) -> None:
+        command = ("docker", "compose", "up", "--build")
+        policy = PolicyEngine(
+            allowed_commands={command},
+            allowed_network_modes={"disabled", "dependency-install"},
+        )
+        decision = policy.evaluate(
+            ToolRequest(
+                tool_name="run_command",
+                args={"argv": list(command)},
+                workspace_root=self.workspace,
+                network_mode="dependency-install",
+            )
+        )
+        self.assertEqual(decision.decision, PolicyDecisionType.ALLOW)

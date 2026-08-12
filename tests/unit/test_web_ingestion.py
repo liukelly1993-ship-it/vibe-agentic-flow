@@ -21,6 +21,13 @@ class WebIngestionTests(unittest.TestCase):
         )
         self.assertTrue(document.has_visual_evidence)
 
+    def test_unrelated_markdown_image_is_not_treated_as_prototype(self) -> None:
+        document = ingest_upload(
+            "需求.md",
+            "# Task Board\n\n![company logo](logo.png)\n\nCreate tasks.".encode("utf-8"),
+        )
+        self.assertFalse(document.has_visual_evidence)
+
     def test_docx_upload_extracts_paragraph_text(self) -> None:
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w") as archive:
@@ -40,7 +47,7 @@ class WebIngestionTests(unittest.TestCase):
             archive.writestr(
                 "word/document.xml",
                 """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-                  <w:body><w:p><w:r><w:t>需求标题</w:t></w:r></w:p></w:body>
+                  <w:body><w:p><w:r><w:t>页面原型</w:t></w:r></w:p></w:body>
                 </w:document>""",
             )
             archive.writestr("word/media/prototype.png", b"not-a-real-image-for-fixture")

@@ -30,15 +30,17 @@ Technical Design 的评审结论、P0 修复状态和 P1 建议见：
 
 - 文档：架构规划、架构评审、PRD、Technical Design 已完成。
 - 已实现：领域状态机、事件哈希链、ArtifactVersion、TraceLink 校验、Policy Engine、ToolGateway、Git worktree 适配器、Fake Agent、AgentPort 和 CLI 闭环。
-- 已验证：51 个 unittest 全部通过，并覆盖评分推进、P1 驳回回退、P0 阻断、原型视觉证据、商城 PRD 需求/验收/测试生成、旧哈希拒绝、事件链校验、跨进程幂等恢复、隔离 worktree、代码范围校验、文档摄取和 Web 端到端交付。
+- 已验证：默认套件包含 63 个测试，其中 62 个通过、1 个真实 Docker E2E 按环境变量跳过；Docker E2E 已单独启用并通过。覆盖评分推进、P1 驳回回退、P0 阻断、原始 PRD 准入、严格 90 分不通过、条件知识库、知识引用传播、原型语义证据、旧哈希拒绝、事件链校验、跨进程幂等恢复、隔离 worktree、代码范围校验和 Web 端到端交付。
 - 已实现：事件日志投影与状态恢复、跨进程 ToolGateway 幂等复用、可注入 `AgentPort`、确定性 FakeAgent、`implement` 隔离代码写入和 worktree 内验证。
 - 已实现：最小显式 TraceLink 与质量门；审批要求绑定当前 `artifact_hash`，验证证据绑定当前 worktree 指纹，工作区变化会使旧验证结果失效。
 - 已实现：M0 确定性 GateService，门前 review 输出评分和 findings，阶段只有在分数严格大于 90 且无 P0 阻塞时才能自动推进；已加入安全、需求贴合、影响范围、测试证据、架构、最小改动和简洁度评分。PRD 额外要求摄取层确认原型图片或页面截图；缺失时最高 85 分并直接 P0 阻断。
-- 已实现：本地 FastAPI Web 控制台，支持 Markdown、PDF、DOCX、HTML、TXT 上传和公共飞书 HTTPS 链接；后台无人工评分推进，普通评分失败不因固定次数停止，生成 FastAPI + React/Vite（检测到 Vue 时使用 Vue/Vite）项目，并在交付前执行后端单测、领域契约、前端依赖安装和生产构建，支持本地路径和 ZIP 下载。
+- 已实现：本地 FastAPI Web 控制台，支持 Markdown、PDF、DOCX、HTML、TXT 上传和公共飞书 HTTPS 链接；创建项目之前先执行原始 PRD 100 分准入评审，严格大于 90 且无 P0 才继续。PRD 涉及既有系统、内部规则、外部契约或受监管数据时要求本地知识库快照；通用自包含 PRD 不强制知识库。
+- 已确定生成基线：Vue 3 + Vite 前端、FastAPI 后端、PostgreSQL 默认数据库，PRD 明确要求 MySQL/MariaDB 时切换。当前模板仍在交付前执行后端单测、领域契约、前端依赖安装和生产构建，并支持本地路径和 ZIP 下载。
+- 已实现：生成项目包含 `compose.yaml`、前后端 Dockerfile、数据库服务和三项健康检查；交付前通过 Policy Gateway 执行配置校验以及 `up --build --wait → backend API → frontend HTTP → down --volumes` 真实运行验收。
 - 已实现：对商城类 PRD 的高信号契约检查，缺少 AI 选品、商品、订单/COD 或 AI 客服接口时，Trace 元数据不能伪造质量门通过；交付包排除 `node_modules` 和 `dist`。
-- 已验证：`/Users/wanjiaheng/Downloads/PRD-商城项目-货到付款与AI智能客服.md` 当前不含原型图片，真实上传任务 `JOB-9952ada18248` 在 PRD 阶段以 `85.00 / 100` 和 `BLOCKED` 结束，没有生成项目路径。
-- 当前边界：真实 LLM、语义关系自动推断、自动回归选择、CI/CD staging/production 部署尚未接入；FakeAgent 只按显式 `implementation.changes` 文件计划生成候选代码。
-- 下一步：接入真实 Agent Provider，增加更严格的产物依赖失效传播，再设计 CI/CD Adapter。
+- 已验证：按当前原始 PRD 准入规则复核 `/Users/wanjiaheng/Downloads/PRD-商城项目-货到付款与AI智能客服.md`，得分 `75.00 / 100` 并 `BLOCKED`。P0 是缺少原型图片；P1 是功能需求和验收条件缺少稳定 `REQ` / `AC` ID。该 PRD 未引用既有系统或外部专有规则，因此当前不要求本地知识库，也不会创建生成项目。
+- 当前边界：真实 LLM、通用业务语义生成、依赖锁与 SBOM、语义关系自动推断、自动回归选择、CI/CD staging/production 部署尚未接入；FakeAgent 只按显式 `implementation.changes` 文件计划生成候选代码。
+- 下一步：接入真实 Agent Provider 与基于 findings/测试证据的自动修复循环。
 
 产品工作流图见：
 
@@ -62,6 +64,10 @@ Technical Design 的评审结论、P0 修复状态和 P1 建议见：
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -t .
+
+# 真实 Docker Compose 构建、健康检查与清理验收
+VAF_RUN_DOCKER_E2E=1 PYTHONPATH=src \
+  python3 -m unittest tests.e2e.test_compose_delivery -v
 ```
 
 对一个已初始化的 Git 项目运行最小流程：
@@ -108,9 +114,11 @@ implementation:
 
 ```bash
 python3 -m pip install -e ".[dev]"
+# 仅在 PRD 需要本地知识资料时配置；多个根目录使用系统路径分隔符
+export VAF_KNOWLEDGE_ROOTS="/path/to/allowed/knowledge"
 PYTHONPATH=src python3 -m vaf.web.app
 ```
 
-打开 [http://127.0.0.1:8787](http://127.0.0.1:8787)，上传 PRD 或填写公共飞书文档链接。任务会在 `.vaf-web/` 中持久化，生成项目位于任务的隔离 worktree，可从页面下载 ZIP。
+打开 [http://127.0.0.1:8787](http://127.0.0.1:8787)，上传 PRD 或填写公共飞书文档链接。需要知识库时填写位于 `VAF_KNOWLEDGE_ROOTS` 内的本地目录。任务会在 `.vaf-web/` 中持久化；PRD 准入不通过时不会创建生成项目，准入并完成后可查看隔离 worktree 和下载 ZIP。
 
 Web M0 当前使用确定性 PRD 模板 Agent 保证离线可回归；真实 LLM Provider、需要登录的飞书文档、数据库迁移、自动提交/合并和 staging/production 部署尚未接入。

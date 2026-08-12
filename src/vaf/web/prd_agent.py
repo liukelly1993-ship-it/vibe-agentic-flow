@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import re
 from typing import Mapping
 
 from vaf.agents.fake_agent import DraftResult
@@ -25,6 +26,8 @@ class PrdContext:
     source_hash: str
     stack: StackChoice
     has_visual_evidence: bool = False
+    knowledge_snapshot_hash: str | None = None
+    knowledge_documents: tuple[tuple[str, str, str], ...] = ()
 
 
 COMMERCE_REQUIREMENTS = (
@@ -51,6 +54,7 @@ class PrdTemplateAgent:
         commerce = _is_commerce_prd(self.context.source_text)
         requirement_ids = _requirement_ids(self.context.source_text)
         requirement_yaml = "[" + ", ".join(requirement_ids) + "]"
+        knowledge_evidence = _knowledge_evidence(self.context)
         requirements_body = _commerce_requirements_body() if commerce else """## REQ-001：核心业务目标
 
 WHEN 用户提交本 PRD 所描述的业务请求
@@ -68,6 +72,7 @@ source_hash: {self.context.source_hash}
 created_by: vaf-local-prd-agent
 created_at: {now}
 prototype_evidence: {str(self.context.has_visual_evidence).lower()}
+knowledge_snapshot_hash: {self.context.knowledge_snapshot_hash or "none"}
 ---
 
 # PRD：{self.context.title}
@@ -95,6 +100,10 @@ prototype_evidence: {str(self.context.has_visual_evidence).lower()}
 ## 原型证据
 
 摄取层检测结果：{"已发现原型图片或页面截图" if self.context.has_visual_evidence else "未发现原型图片或页面截图，当前 PRD 不具备进入下一阶段的条件"}。
+
+## 知识依据
+
+{knowledge_evidence}
 """
         return DraftResult(
             artifact_type="prd",
@@ -230,10 +239,14 @@ created_at: {now}
         )
         items: list[dict[str, object]] = [
             _item("README.md", _readme(self.context, frontend_is_vue), requirement_ids=requirement_ids),
+            _item("compose.yaml", _compose_yaml(self.context.stack.database), requirement_ids=requirement_ids),
             _item("backend/__init__.py", "", requirement_ids=requirement_ids),
             _item("backend/app/__init__.py", "", requirement_ids=requirement_ids),
+            _item("backend/Dockerfile", _backend_dockerfile(), requirement_ids=requirement_ids),
             _item("backend/requirements.txt", "fastapi>=0.115\nuvicorn[standard]>=0.30\npydantic>=2.0\n", requirement_ids=requirement_ids),
             _item("backend/app/main.py", _backend(self.context.title, self.context.objective, commerce), requirement_ids=requirement_ids),
+            _item("frontend/Dockerfile", _frontend_dockerfile(), requirement_ids=requirement_ids),
+            _item("frontend/nginx.conf", _nginx_config(), requirement_ids=requirement_ids),
             _item("frontend/package.json", _package_json(self.context.title, frontend_is_vue), requirement_ids=requirement_ids),
             _item("frontend/vite.config.js", _vite_config(frontend_is_vue), requirement_ids=requirement_ids),
             _item("frontend/index.html", _index_html(self.context.title), requirement_ids=requirement_ids),
@@ -300,6 +313,16 @@ def _item(
 def _source_excerpt(text: str) -> str:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return "\n".join(lines[:80])[:8000]
+
+
+def _knowledge_evidence(context: PrdContext) -> str:
+    if not context.knowledge_documents:
+        return "当前原始 PRD 未触发外部专有知识要求。"
+    entries: list[str] = []
+    for index, (path, content_hash, text) in enumerate(context.knowledge_documents[:10], start=1):
+        excerpt = re.sub(r"\s+", " ", text).strip()[:500]
+        entries.append(f"- KB-{index:03d}：`{path}`，哈希 `{content_hash}`，证据摘录：{excerpt}")
+    return "\n".join(entries)
 
 
 def _requirement_ids(source_text: str) -> tuple[str, ...]:
@@ -483,6 +506,16 @@ def _readme(context: PrdContext, frontend_is_vue: bool) -> str:
 
 ## 启动
 
+Docker Compose 交付方式：
+
+```bash
+docker compose up --build
+```
+
+浏览器访问 `http://localhost:8080`，后端健康接口为 `http://localhost:8000/api/health`。
+
+本地开发方式：
+
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r backend/requirements.txt
@@ -493,6 +526,121 @@ cd frontend && npm install && {frontend_command}
 前端默认运行在 `http://localhost:5173`，后端健康接口为 `http://localhost:8000/api/health`。
 
 PRD 原文哈希：`{context.source_hash}`
+"""
+
+
+def _compose_yaml(database: str) -> str:
+    if database == "MySQL":
+        database_block = """    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: app
+      MYSQL_USER: app
+      MYSQL_PASSWORD: app-local-only
+      MYSQL_ROOT_PASSWORD: root-local-only
+    healthcheck:
+      test: [\"CMD\", \"mysqladmin\", \"ping\", \"-h\", \"127.0.0.1\", \"-uapp\", \"-papp-local-only\"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - database-data:/var/lib/mysql"""
+        database_url = "mysql+pymysql://app:app-local-only@database:3306/app"
+    else:
+        database_block = """    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app-local-only
+    healthcheck:
+      test: [\"CMD-SHELL\", \"pg_isready -U app -d app\"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - database-data:/var/lib/postgresql/data"""
+        database_url = "postgresql+psycopg://app:app-local-only@database:5432/app"
+    return f"""services:
+  database:
+{database_block}
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: {database_url}
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      test: [\"CMD\", \"python\", \"-c\", \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')\"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    ports:
+      - \"8000:8000\"
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: [\"CMD\", \"wget\", \"-qO-\", \"http://127.0.0.1/\"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    ports:
+      - \"8080:80\"
+
+volumes:
+  database-data:
+"""
+
+
+def _backend_dockerfile() -> str:
+    return """FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY app ./app
+CMD [\"uvicorn\", \"app.main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8000\"]
+"""
+
+
+def _frontend_dockerfile() -> str:
+    return """FROM node:22-alpine AS build
+
+WORKDIR /app
+COPY package.json .
+RUN npm install --legacy-peer-deps --no-audit --no-fund
+COPY . .
+RUN npm run build
+
+FROM nginx:1.27-alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 80
+"""
+
+
+def _nginx_config() -> str:
+    return """server {
+  listen 80;
+  server_name _;
+  root /usr/share/nginx/html;
+  index index.html;
+
+  location /api/ {
+    proxy_pass http://backend:8000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  }
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}
 """
 
 

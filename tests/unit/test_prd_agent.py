@@ -46,6 +46,10 @@ AI 搜索选品、商品浏览、购物车、货到付款、订单状态、AI �
 
     def test_commerce_implementation_trace_only_declares_executable_backend_cases(self) -> None:
         items = self.agent.implementation_items()
+        paths = {str(item["path"]) for item in items}
+        self.assertIn("compose.yaml", paths)
+        self.assertIn("frontend/src/App.vue", paths)
+        self.assertNotIn("frontend/src/App.jsx", paths)
         backend_test = next(item for item in items if item["path"] == "tests/test_backend.py")
         self.assertEqual(
             backend_test["test_ids"],
@@ -53,6 +57,25 @@ AI 搜索选品、商品浏览、购物车、货到付款、订单状态、AI �
         )
         self.assertIn("test_order_status_rejects_invalid_values", str(backend_test["content"]))
         self.assertNotIn("TC-004", backend_test["test_ids"])
+
+    def test_prd_records_knowledge_snapshot_and_source_hashes(self) -> None:
+        source = "# Internal integration\n\n现有 CRM 接口需要可信知识依据。"
+        agent = PrdTemplateAgent(
+            PrdContext(
+                title="Knowledge grounded change",
+                objective="按现有 CRM 契约实现",
+                source_text=source,
+                source_hash="sha256:source",
+                stack=choose_stack(source),
+                has_visual_evidence=True,
+                knowledge_snapshot_hash="sha256:snapshot",
+                knowledge_documents=(("crm-api.md", "sha256:document", "CRM 客户接口错误码为 CRM-001。"),),
+            )
+        )
+        artifact = agent.draft_prd("CHG-KB", "Knowledge grounded change", "按现有 CRM 契约实现")
+        self.assertIn("knowledge_snapshot_hash: sha256:snapshot", artifact.content)
+        self.assertIn("KB-001", artifact.content)
+        self.assertIn("sha256:document", artifact.content)
 
 
 if __name__ == "__main__":

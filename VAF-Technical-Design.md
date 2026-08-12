@@ -861,6 +861,14 @@ project/vaf/
 
 **原因：** 将模型波动与状态机、Schema、策略和恢复问题隔离，先证明系统可控。
 
+### ADR-005：真实 Provider 使用 MiniMax-M3 多模态适配器
+
+**决定：** 在不改变 `AgentPort`、状态机和 Gate Engine 的前提下，新增可选 MiniMax-M3 Adapter。图片使用 Anthropic 兼容的 `image` 消息块传入，支持受限 Base64 与公共 HTTPS URL；所有请求仍经过 `ToolGateway` 的 `llm-provider` 网络模式。
+
+**证据契约：** 摄取层必须实际读取图片内容或得到受限公共 URL，来源哈希同时覆盖正文与图片哈希。M3 在生成 PRD 前必须完成结构化原型检查；模型 PRD 的 frontmatter 必须绑定 `prototype_input_hashes` 与 `prototype_analysis_hash`，否则产品门 P0 阻断。API Key 只从 `MINIMAX_API_KEY` 环境变量读取，不进入日志、产物或公开状态接口。
+
+**原因：** M3 具备原生多模态能力，可以直接理解原型布局与可见文字；确定性门禁仍只相信来源、请求和验证证据，不把模型自评当作通过依据。
+
 ## 17. 技术方案验收清单
 
 - [ ] 领域对象、ID、错误码和枚举已定义。
@@ -872,16 +880,16 @@ project/vaf/
 - [ ] 幂等调用、状态不明和恢复规则已定义。
 - [ ] Worktree、路径白名单和验证命令执行规则已定义。
 - [ ] 五个 Golden Change 验收夹具已映射到测试文件。
-- [ ] v0.1 不包含真实 LLM、云部署和生产权限。
+- [x] 真实 LLM 仅通过 Adapter 可选接入，不改变领域内核；v0.1 仍不包含云部署和生产权限。
 
 ## 18. 当前实现状态与下一步
 
-当前 M0 已完成 Slice 1–7 的最小可运行闭环，并已增加原始 PRD 准入评审、本地知识库允许根目录、知识快照哈希、知识引用传播、原型语义识别和固定 Vue/FastAPI 数据库选择。生成项目已包含 Compose、前后端 Dockerfile、数据库服务和健康检查，并通过 Policy Gateway 执行 `docker compose config --quiet` 以及 `up --build --wait → backend API → frontend HTTP → down --volumes` 真实运行验收。代码生成仍使用显式文件计划驱动的确定性本地 Agent；真实 LLM、通用业务语义生成、依赖锁、SBOM、需要登录的飞书文档、CI/CD 和生产部署适配器不在当前实现内。
+当前 M0 已完成 Slice 1–7 的最小可运行闭环，并已增加原始 PRD 准入评审、本地知识库允许根目录、知识快照哈希、知识引用传播、真实原型图片摄取和固定 Vue/FastAPI 数据库选择。生成项目已包含 Compose、前后端 Dockerfile、数据库服务和健康检查，并通过 Policy Gateway 执行 `docker compose config --quiet` 以及 `up --build --wait → backend API → frontend HTTP → down --volumes` 真实运行验收。Web 流程现可显式选择 MiniMax-M3：先对原型做结构化视觉理解，再生成阶段产物和候选代码；确定性模板 Agent 继续承担离线回归。通用业务生产质量、依赖锁、SBOM、需要登录的飞书文档、CI/CD 和生产部署适配器仍不在当前完成范围内。
 
 下一批实现建议为：
 
 ```text
-1. AgentPort Provider：接入一个真实 LLM Provider，保留本地模板 Agent 作为确定性回归夹具。
+1. 自动修复循环：把 Gate findings、构建错误和测试失败作为下一次模型修复的结构化输入，并保留每轮差异与评分证据。
 2. 依赖锁、SBOM 和浏览器验收：在已有 Compose 运行门上增加可复现依赖和 Playwright 页面/原型验证。
 3. 飞书 OAuth/API 和更严格的来源权限校验，支持非公开文档的受控读取。
 4. 产物依赖失效传播：在多阶段上游版本变化时阻止下游旧产物继续执行。

@@ -1,3 +1,4 @@
+import base64
 import tempfile
 import time
 import unittest
@@ -9,8 +10,15 @@ from fastapi.testclient import TestClient
 from vaf.web.app import create_app
 
 
+PROTOTYPE_DATA_URL = "data:image/png;base64," + base64.b64encode(
+    base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/3kY2AAAAAElFTkSuQmCC"
+    )
+).decode("ascii")
+
+
 def deliverable_status_prd(*, prototype: bool = True) -> str:
-    visual = "![状态页面原型](prototype.png)" if prototype else ""
+    visual = f"![状态页面原型]({PROTOTYPE_DATA_URL})" if prototype else ""
     return f"""# 服务状态页面 PRD
 
 ## 背景、目标与业务价值

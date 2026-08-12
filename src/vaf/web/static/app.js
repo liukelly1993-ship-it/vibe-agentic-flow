@@ -4,6 +4,8 @@ const feishuSource = document.querySelector("#feishu-source");
 const form = document.querySelector("#job-form");
 const fileInput = document.querySelector("#prd-file");
 const fileLabel = document.querySelector("#file-label");
+const prototypeInput = document.querySelector("#prototype-files");
+const prototypeLabel = document.querySelector("#prototype-label");
 const dropZone = document.querySelector("#drop-zone");
 const formError = document.querySelector("#form-error");
 const startButton = document.querySelector("#start-button");
@@ -25,6 +27,11 @@ for (const tab of sourceTabs) {
 fileInput.addEventListener("change", () => {
   const file = fileInput.files[0];
   if (file) fileLabel.textContent = file.name;
+});
+
+prototypeInput.addEventListener("change", () => {
+  const count = prototypeInput.files.length;
+  prototypeLabel.textContent = count ? `已选择 ${count} 张原型图` : "选择 PNG / JPEG / GIF / WebP";
 });
 
 for (const eventName of ["dragenter", "dragover"]) {
@@ -70,6 +77,7 @@ form.addEventListener("submit", async (event) => {
       payload.append("file", file);
       payload.append("title", title);
       payload.append("knowledge_path", knowledgePath);
+      for (const prototype of prototypeInput.files) payload.append("prototype_files", prototype);
       response = await fetch("/api/jobs", { method: "POST", body: payload });
     }
     const body = await response.json();
@@ -128,6 +136,8 @@ function showActiveJob(job) {
   document.querySelector("#active-hash").textContent = shortHash(job.source_hash);
   const stack = job.stack || {};
   document.querySelector("#active-stack").textContent = stack.backend ? `${stack.frontend} + ${stack.backend} + ${stack.database}` : "-";
+  const agent = job.result?.agent_provider || {};
+  document.querySelector("#active-agent").textContent = agent.model || agent.provider || "-";
   const prdScore = job.prd_review?.score;
   document.querySelector("#active-prd-score").textContent = prdScore == null ? "pending" : `${Number(prdScore).toFixed(1)} / 100`;
   const score = job.quality_gate?.score;
@@ -179,7 +189,11 @@ function shortHash(value) { return value ? `${value.slice(0, 16)}…` : "-"; }
 function formatDate(value) { return value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "-"; }
 function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character])); }
 
-fetch("/api/health").then((response) => {
-  document.querySelector("#service-status").textContent = response.ok ? "本地引擎在线" : "引擎异常";
+fetch("/api/health").then(async (response) => {
+  const health = await response.json();
+  const agent = health.agent || {};
+  document.querySelector("#service-status").textContent = response.ok
+    ? `${agent.model || "本地引擎"} 在线`
+    : "引擎异常";
 }).catch(() => { document.querySelector("#service-status").textContent = "引擎不可用"; });
 loadJobs();

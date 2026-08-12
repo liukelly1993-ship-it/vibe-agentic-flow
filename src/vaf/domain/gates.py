@@ -8,7 +8,7 @@ import ast
 from pathlib import Path
 import re
 
-from vaf.domain.artifacts import ArtifactVersion
+from vaf.domain.artifacts import ArtifactVersion, split_frontmatter
 
 
 class GateType(StrEnum):
@@ -91,10 +91,12 @@ def evaluate_artifact_gate(
 
     try:
         artifact = ArtifactVersion.from_markdown(content)
+        metadata, _body = split_frontmatter(content)
         schema_passed = artifact.artifact_type.value == artifact_type
         schema_evidence = "frontmatter and artifact type are valid"
     except ValueError as exc:
         artifact = None
+        metadata = {}
         schema_passed = False
         schema_evidence = str(exc)
 
@@ -178,14 +180,30 @@ def evaluate_artifact_gate(
         )
 
     if artifact_type == "prd":
+        model_generated = bool(artifact and artifact.created_by.startswith("minimax-"))
+        input_hashes = metadata.get("prototype_input_hashes")
+        model_visual_evidence = (
+            metadata.get("prototype_understood_by_model") is True
+            and isinstance(input_hashes, list)
+            and bool(input_hashes)
+            and all(isinstance(value, str) and value.startswith("sha256:") for value in input_hashes)
+            and isinstance(metadata.get("prototype_analysis_hash"), str)
+            and str(metadata["prototype_analysis_hash"]).startswith("sha256:")
+        )
         prototype_passed = (
             source_visual_evidence
             if source_visual_evidence is not None
             else _has_visual_evidence_reference(content)
         )
+        if model_generated:
+            prototype_passed = bool(prototype_passed and model_visual_evidence)
         prototype_evidence = (
-            "摄取层检测到原型图片或页面截图"
-            if source_visual_evidence is True
+            "摄取层读取了原型图片，MiniMax-M3 视觉检查证据已绑定"
+            if source_visual_evidence is True and model_generated and model_visual_evidence
+            else "摄取层读取了原型图片或页面截图"
+            if source_visual_evidence is True and not model_generated
+            else "模型产物缺少绑定到输入哈希的视觉检查证据"
+            if source_visual_evidence is True and model_generated
             else "产物包含原型图片或页面截图引用"
             if source_visual_evidence is None and prototype_passed
             else "摄取层未检测到原型图片或页面截图"
@@ -206,8 +224,8 @@ def evaluate_artifact_gate(
                     "GATE-PROTOTYPE-001",
                     "P0",
                     "PROTOTYPE",
-                    "PRD 缺少原型图片或页面截图，不能进入下一阶段",
-                    "在 PRD 中补充真实原型图、页面截图或线框图后重新上传；文字描述不能替代视觉证据",
+                    "PRD 缺少可读取的原型图片，或模型产物没有绑定视觉检查证据，不能进入下一阶段",
+                    "补充并上传真实原型图；MiniMax 产物还必须绑定输入图片哈希与结构化视觉分析哈希",
                 )
             )
 

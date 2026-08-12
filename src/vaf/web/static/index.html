@@ -54,6 +54,12 @@
                 <span>Markdown / PDF / DOCX / HTML / TXT，最大 20 MB</span>
                 <input id="prd-file" name="file" type="file" accept=".md,.markdown,.pdf,.docx,.html,.htm,.txt" />
               </label>
+              <label class="field-label" for="prototype-files">附加原型图 <span>Markdown 使用相对图片路径时必传</span></label>
+              <label class="prototype-picker" for="prototype-files">
+                <strong id="prototype-label">选择 PNG / JPEG / GIF / WebP</strong>
+                <span>最多 8 张，单张不超过 5 MB</span>
+                <input id="prototype-files" name="prototype_files" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple />
+              </label>
             </div>
 
             <div id="feishu-source" class="source-content">
@@ -109,6 +115,7 @@
             <div class="evidence-column">
               <div class="evidence-card"><span>Source hash</span><strong id="active-hash">-</strong></div>
               <div class="evidence-card"><span>Selected stack</span><strong id="active-stack">-</strong></div>
+              <div class="evidence-card"><span>Agent model</span><strong id="active-agent">-</strong></div>
               <div class="evidence-card"><span>PRD admission</span><strong id="active-prd-score">-</strong></div>
               <div class="evidence-card"><span>Delivery gate</span><strong id="active-score">-</strong></div>
               <div class="evidence-card"><span>Frontend build</span><strong id="active-frontend">pending</strong></div>

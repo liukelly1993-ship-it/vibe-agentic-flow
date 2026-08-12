@@ -15,7 +15,7 @@ import yaml
 from vaf.adapters.git_worktree import GitWorktreeManager, GitWorktreeToolAdapter, WorktreeHandle
 from vaf.adapters.jsonl_event_store import JsonlEventStore
 from vaf.adapters.tool_gateway import LocalCommandAdapter, LocalFileAdapter, ToolGateway
-from vaf.agents.fake_agent import DraftResult, FakeAgent
+from vaf.agents.fake_agent import FakeAgent
 from vaf.application.run_projection import RunState, project_events
 from vaf.domain.artifacts import ArtifactVersion, split_frontmatter
 from vaf.domain.events import EventEnvelope
@@ -24,7 +24,7 @@ from vaf.domain.ids import new_id
 from vaf.domain.states import StageCommand, StageStatus, TransitionError, transition
 from vaf.domain.trace import TraceLink, TraceRelation, calculate_coverage, validate_links
 from vaf.policy.engine import PolicyEngine, ToolRequest
-from vaf.ports.agents import AgentPort
+from vaf.ports.agents import AgentPort, DraftResult
 
 
 class WorkflowError(RuntimeError):

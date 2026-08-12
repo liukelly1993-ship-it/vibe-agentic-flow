@@ -1,9 +1,15 @@
+import base64
 import io
 import unittest
 import zipfile
 
 from vaf.web.ingestion import DocumentIngestionError, ingest_feishu, ingest_upload
 from vaf.web.stacks import choose_stack
+
+
+PNG_BYTES = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/3kY2AAAAAElFTkSuQmCC"
+)
 
 
 class WebIngestionTests(unittest.TestCase):
@@ -14,12 +20,32 @@ class WebIngestionTests(unittest.TestCase):
         self.assertIn("Task Board", document.text)
         self.assertFalse(document.has_visual_evidence)
 
-    def test_markdown_prototype_is_recorded_as_source_evidence(self) -> None:
+    def test_markdown_relative_prototype_is_unresolved_without_image_upload(self) -> None:
         document = ingest_upload(
             "需求.md",
             "# Task Board\n\n![首页原型](prototype.png)\n\nCreate tasks.".encode("utf-8"),
         )
+        self.assertFalse(document.has_visual_evidence)
+        self.assertEqual(document.unresolved_visual_references, ("prototype.png",))
+
+    def test_markdown_embedded_prototype_is_recorded_as_source_evidence(self) -> None:
+        encoded = base64.b64encode(PNG_BYTES).decode("ascii")
+        document = ingest_upload(
+            "需求.md",
+            f"# Task Board\n\n![首页原型](data:image/png;base64,{encoded})\n\nCreate tasks.".encode("utf-8"),
+        )
         self.assertTrue(document.has_visual_evidence)
+        self.assertEqual(len(document.visual_inputs), 1)
+        self.assertEqual(document.visual_inputs[0].media_type, "image/png")
+
+    def test_separate_prototype_upload_resolves_markdown_visual_requirement(self) -> None:
+        document = ingest_upload(
+            "需求.md",
+            "# Task Board\n\n![首页原型](prototype.png)\n\nCreate tasks.".encode("utf-8"),
+            [("prototype.png", PNG_BYTES)],
+        )
+        self.assertTrue(document.has_visual_evidence)
+        self.assertEqual(len(document.visual_inputs), 1)
 
     def test_unrelated_markdown_image_is_not_treated_as_prototype(self) -> None:
         document = ingest_upload(
@@ -50,7 +76,7 @@ class WebIngestionTests(unittest.TestCase):
                   <w:body><w:p><w:r><w:t>页面原型</w:t></w:r></w:p></w:body>
                 </w:document>""",
             )
-            archive.writestr("word/media/prototype.png", b"not-a-real-image-for-fixture")
+            archive.writestr("word/media/prototype.png", PNG_BYTES)
         document = ingest_upload("需求.docx", buffer.getvalue())
         self.assertTrue(document.has_visual_evidence)
 

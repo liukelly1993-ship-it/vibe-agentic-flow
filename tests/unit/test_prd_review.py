@@ -1,3 +1,4 @@
+import base64
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,9 +8,16 @@ from vaf.web.ingestion import ingest_upload
 from vaf.web.prd_review import KnowledgeBaseError, load_knowledge_base, review_source_prd
 
 
+PROTOTYPE_DATA_URL = "data:image/png;base64," + base64.b64encode(
+    base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/3kY2AAAAAElFTkSuQmCC"
+    )
+).decode("ascii")
+
+
 def complete_prd(*, prototype: bool = True, knowledge_reference: bool = False) -> str:
     reference = "系统需要对接现有 CRM，客户字段和错误码按照内部接口文档执行。" if knowledge_reference else ""
-    visual = "![任务看板原型](prototype.png)" if prototype else ""
+    visual = f"![任务看板原型]({PROTOTYPE_DATA_URL})" if prototype else ""
     return f"""# 任务看板 PRD
 
 ## 背景、目标与业务价值

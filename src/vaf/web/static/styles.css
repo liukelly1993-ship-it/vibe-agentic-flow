@@ -46,6 +46,10 @@ h2 { margin: 7px 0 0; color: #eef4ef; font-size: 20px; letter-spacing: 0; }
 .drop-zone span:last-of-type { color: #819597; font-size: 12px; }
 .upload-icon { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid #5eb9a9; border-radius: 50%; color: #8eedd7; font-size: 24px; line-height: 1; }
 input[type="file"] { display: none; }
+.prototype-picker { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 52px; padding: 11px 13px; border: 1px solid #36484a; border-radius: 4px; color: #c4d1ce; background: #111a1c; cursor: pointer; }
+.prototype-picker:hover { border-color: #75d9c4; }
+.prototype-picker strong { font-size: 12px; }
+.prototype-picker span { color: #78908f; font-size: 11px; text-align: right; }
 .field-label { display: block; margin: 16px 0 7px; color: #c4d1ce; font-size: 12px; font-weight: 700; }
 .field-label span { color: #78908f; font-weight: 400; }
 input[type="text"], input[type="url"] { width: 100%; border: 1px solid #36484a; border-radius: 4px; outline: none; padding: 12px 13px; color: #edf7f0; background: #111a1c; }

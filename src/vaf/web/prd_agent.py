@@ -13,8 +13,7 @@ import json
 import re
 from typing import Mapping
 
-from vaf.agents.fake_agent import DraftResult
-from vaf.ports.agents import CodeChange, CodeGenerationResult
+from vaf.ports.agents import CodeChange, CodeGenerationResult, DraftResult, ImageInput
 from vaf.web.stacks import StackChoice
 
 
@@ -26,6 +25,7 @@ class PrdContext:
     source_hash: str
     stack: StackChoice
     has_visual_evidence: bool = False
+    visual_inputs: tuple[ImageInput, ...] = ()
     knowledge_snapshot_hash: str | None = None
     knowledge_documents: tuple[tuple[str, str, str], ...] = ()
 

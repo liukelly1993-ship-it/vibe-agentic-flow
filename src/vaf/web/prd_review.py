@@ -228,6 +228,13 @@ def review_source_prd(
     criteria: list[PrdReviewCriterion] = []
     findings: list[PrdReviewFinding] = []
 
+    visual_evidence = (
+        f"摄取层读取了 {len(document.visual_inputs)} 张视觉证据"
+        if document.has_visual_evidence
+        else f"检测到 {len(document.unresolved_visual_references)} 个图片引用，但没有可读取的图片内容"
+        if document.unresolved_visual_references
+        else "摄取层没有检测到可读取的视觉证据"
+    )
     _add_check(
         criteria,
         findings,
@@ -366,10 +373,10 @@ def review_source_prd(
         15.0,
         document.has_visual_evidence,
         True,
-        "摄取层检测到视觉证据" if document.has_visual_evidence else "摄取层没有检测到视觉证据",
+        visual_evidence,
         "PRD-PROTOTYPE-001",
         "PRD 缺少原型图片、页面截图或线框图",
-        "补充真实视觉原型；纯文字描述不能代替页面证据",
+        "补充真实视觉原型；Markdown 相对路径图片需同时上传，纯文字或不可读取的引用不能代替页面证据",
     )
     _add_check(
         criteria,

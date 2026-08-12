@@ -2,20 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 from typing import Mapping
 
-from vaf.ports.agents import CodeChange, CodeGenerationResult
-
-
-@dataclass(frozen=True)
-class DraftResult:
-    artifact_type: str
-    content: str
-    assumptions: tuple[str, ...]
-    questions: tuple[str, ...]
+from vaf.ports.agents import CodeChange, CodeGenerationResult, DraftResult
 
 
 class FakeAgent:

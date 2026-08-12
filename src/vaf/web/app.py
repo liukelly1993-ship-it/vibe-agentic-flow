@@ -21,10 +21,12 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from vaf.adapters.tool_gateway import LocalCommandAdapter, ToolGateway
+from vaf.adapters.minimax import MiniMaxConfig, MiniMaxProviderError
 from vaf.application.local_workflow import LocalWorkflow, WorkflowError
 from vaf.domain.ids import new_id
 from vaf.policy.engine import PolicyEngine, ToolRequest
 from vaf.web.ingestion import DocumentIngestionError, IngestedDocument, ingest_feishu, ingest_upload
+from vaf.web.minimax_agent import MiniMaxAgent
 from vaf.web.prd_agent import PrdContext, PrdTemplateAgent
 from vaf.web.prd_review import KnowledgeBaseError, load_knowledge_base, review_source_prd
 from vaf.web.stacks import choose_stack
@@ -36,6 +38,7 @@ class VafWebService:
         self,
         data_root: str | Path | None = None,
         compose_runtime: bool | None = None,
+        agent_provider: str | None = None,
     ) -> None:
         self.data_root = Path(data_root or os.environ.get("VAF_WEB_ROOT", ".vaf-web")).resolve()
         self.data_root.mkdir(parents=True, exist_ok=True)
@@ -46,6 +49,23 @@ class VafWebService:
             if compose_runtime is not None
             else os.environ.get("VAF_COMPOSE_RUNTIME", "required").lower() not in {"0", "false", "skip"}
         )
+        self.agent_provider = (agent_provider or os.environ.get("VAF_AGENT_PROVIDER", "template")).strip().lower()
+        if self.agent_provider not in {"template", "minimax"}:
+            raise ValueError("VAF_AGENT_PROVIDER 只支持 template 或 minimax")
+
+    def provider_status(self) -> dict[str, object]:
+        if self.agent_provider == "template":
+            return {"provider": "template", "model": "deterministic", "key_configured": False, "ready": True}
+        try:
+            return {**MiniMaxConfig.from_env().public_dict(), "ready": True}
+        except MiniMaxProviderError as exc:
+            return {
+                "provider": "minimax",
+                "model": os.environ.get("MINIMAX_MODEL", "MiniMax-M3"),
+                "key_configured": bool(os.environ.get("MINIMAX_API_KEY", "").strip()),
+                "ready": False,
+                "error": str(exc),
+            }
 
     def create_job(
         self,
@@ -58,6 +78,7 @@ class VafWebService:
         job_root.mkdir(parents=True, exist_ok=False)
         source_path = job_root / f"source{Path(document.name).suffix.lower() or '.md'}"
         source_path.write_text(document.text, encoding="utf-8")
+        visual_manifest_path = _persist_visual_inputs(job_root, document)
         choice = choose_stack(document.text)
         record = self.store.create(
             {
@@ -68,7 +89,16 @@ class VafWebService:
                 "source_hash": document.content_hash,
                 "project_path": str(job_root / "project"),
                 "stack": choice.to_dict(),
-                "result": {"knowledge_path": knowledge_path.strip() if knowledge_path and knowledge_path.strip() else None},
+                "result": {
+                    "knowledge_path": knowledge_path.strip() if knowledge_path and knowledge_path.strip() else None,
+                    "agent_provider": self.provider_status(),
+                    "source_visual_evidence": {
+                        "count": len(document.visual_inputs),
+                        "hashes": [image.content_hash for image in document.visual_inputs],
+                        "unresolved_references": list(document.unresolved_visual_references),
+                        "manifest_path": str(visual_manifest_path) if visual_manifest_path else None,
+                    },
+                },
             }
         )
         self.executor.submit(self._run_job, job_id, document, record["title"], choice, knowledge_path)
@@ -86,6 +116,7 @@ class VafWebService:
         project_path = job_root / "project"
         implementation_path = job_root / "implementation.yaml"
         workflow: LocalWorkflow | None = None
+        agent: PrdTemplateAgent | MiniMaxAgent | None = None
         try:
             self.store.update(job_id, status="RUNNING", phase="reviewing-prd")
             knowledge_snapshot = None
@@ -130,13 +161,20 @@ class VafWebService:
                 source_hash=document.content_hash,
                 stack=choice,
                 has_visual_evidence=document.has_visual_evidence,
+                visual_inputs=document.visual_inputs,
                 knowledge_snapshot_hash=knowledge_snapshot.snapshot_hash if knowledge_snapshot else None,
                 knowledge_documents=tuple(
                     (item.path, item.content_hash, item.text)
                     for item in knowledge_snapshot.documents
                 ) if knowledge_snapshot else (),
             )
-            agent = PrdTemplateAgent(context)
+            agent = (
+                MiniMaxAgent(context, workspace_root=project_path)
+                if self.agent_provider == "minimax"
+                else PrdTemplateAgent(context)
+            )
+            if isinstance(agent, MiniMaxAgent):
+                self._merge_result(job_id, {"agent_provider": agent.provider_info()})
             implementation_path.write_text(
                 _implementation_yaml(agent.implementation_items()), encoding="utf-8"
             )
@@ -187,6 +225,7 @@ class VafWebService:
                     "source_path": str(job_root / f"source{Path(document.name).suffix.lower() or '.md'}"),
                     "implementation_path": str(implementation_path),
                     "knowledge_snapshot_path": str(job_root / "knowledge-snapshot.json") if knowledge_snapshot else None,
+                    "agent_evidence": agent.evidence() if isinstance(agent, MiniMaxAgent) else [],
                 },
             )
             self.store.update(
@@ -196,6 +235,8 @@ class VafWebService:
                 generated_path=generated_path,
             )
         except Exception as exc:
+            if isinstance(agent, MiniMaxAgent):
+                self._merge_result(job_id, {"agent_evidence": agent.evidence()})
             current = self.store.get(job_id) or {}
             result = current.get("result", {})
             if workflow is not None and isinstance(result, dict):
@@ -236,14 +277,24 @@ class VafWebService:
 def create_app(
     data_root: str | Path | None = None,
     compose_runtime: bool | None = None,
+    agent_provider: str | None = None,
 ) -> FastAPI:
-    service = VafWebService(data_root, compose_runtime=compose_runtime)
+    service = VafWebService(
+        data_root,
+        compose_runtime=compose_runtime,
+        agent_provider=agent_provider,
+    )
     app = FastAPI(title="VAF Control Plane", version="0.2.0")
     app.state.vaf = service
 
     @app.get("/api/health")
     def health() -> dict[str, object]:
-        return {"status": "ok", "service": "vaf-web", "data_root": str(service.data_root)}
+        return {
+            "status": "ok",
+            "service": "vaf-web",
+            "data_root": str(service.data_root),
+            "agent": service.provider_status(),
+        }
 
     @app.get("/api/jobs")
     def list_jobs() -> dict[str, object]:
@@ -259,12 +310,21 @@ def create_app(
         feishu_url: str | None = Form(default=None),
         title: str | None = Form(default=None),
         knowledge_path: str | None = Form(default=None),
+        prototype_files: list[UploadFile] | None = File(default=None),
     ) -> dict[str, Any]:
         if file is None and not (feishu_url and feishu_url.strip()):
             raise HTTPException(status_code=400, detail="请上传 PRD 文件或填写飞书文档链接")
         try:
             if file is not None:
-                document = ingest_upload(file.filename or "prd.md", await file.read())
+                prototypes = [
+                    (prototype.filename or "prototype.png", await prototype.read())
+                    for prototype in (prototype_files or [])
+                ]
+                document = ingest_upload(
+                    file.filename or "prd.md",
+                    await file.read(),
+                    prototypes,
+                )
             else:
                 document = ingest_feishu(feishu_url or "")
             return service.create_job(document, title, knowledge_path)
@@ -359,6 +419,49 @@ def main() -> None:
         host=os.environ.get("VAF_HOST", "127.0.0.1"),
         port=int(os.environ.get("VAF_PORT", "8787")),
     )
+
+
+def _persist_visual_inputs(job_root: Path, document: IngestedDocument) -> Path | None:
+    if not document.visual_inputs and not document.unresolved_visual_references:
+        return None
+    assets_root = job_root / "source-assets"
+    assets_root.mkdir(parents=True, exist_ok=True)
+    suffixes = {
+        "image/gif": ".gif",
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+    }
+    items: list[dict[str, object]] = []
+    for index, image in enumerate(document.visual_inputs, start=1):
+        asset_path = None
+        if image.data is not None:
+            suffix = suffixes.get(image.media_type or "", ".bin")
+            target = assets_root / f"prototype-{index:02d}-{image.content_hash[7:19]}{suffix}"
+            target.write_bytes(image.data)
+            asset_path = str(target)
+        items.append(
+            {
+                "source_name": image.source_name,
+                "source_type": "base64" if image.data is not None else "url",
+                "media_type": image.media_type,
+                "content_hash": image.content_hash,
+                "asset_path": asset_path,
+            }
+        )
+    manifest_path = assets_root / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "images": items,
+                "unresolved_references": list(document.unresolved_visual_references),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return manifest_path
 
 
 def _initialize_git_repo(path: Path) -> None:

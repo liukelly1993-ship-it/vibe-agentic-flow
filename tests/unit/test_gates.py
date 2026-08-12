@@ -76,6 +76,35 @@ THE SYSTEM SHALL 返回结果
         self.assertEqual(result.score, 85.0)
         self.assertTrue(any(finding.finding_id == "GATE-PROTOTYPE-001" for finding in result.findings))
 
+    def test_minimax_prd_requires_bound_visual_analysis_evidence(self) -> None:
+        content = """---
+artifact_id: PRD-CHG-M3
+artifact_type: prd
+change_id: CHG-M3
+version: 1
+status: waiting_review
+created_by: minimax-MiniMax-M3-agent
+created_at: 2026-08-12T00:00:00Z
+---
+
+## 问题与目标
+实现原型中的页面。
+
+## REQ-001
+WHEN 用户打开页面 THE SYSTEM SHALL 显示任务。
+
+## 验收条件
+- AC-001：通过自动化测试验证页面内容。
+
+## 原型证据
+摄取层存在原型图片。
+"""
+        result = evaluate_artifact_gate("prd", content, source_visual_evidence=True)
+        self.assertEqual(result.decision, GateDecision.BLOCKED)
+        self.assertEqual(result.score, 85.0)
+        criterion = next(item for item in result.criteria if item.criterion_id == "PROTOTYPE")
+        self.assertIn("视觉检查证据", criterion.evidence)
+
     def test_missing_requirement_is_blocked(self) -> None:
         content = """---
 artifact_id: PRD-CHG-001

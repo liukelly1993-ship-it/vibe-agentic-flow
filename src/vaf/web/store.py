@@ -50,7 +50,7 @@ class JobStore:
             "project_path": job.get("project_path"),
             "generated_path": None,
             "stack_json": json.dumps(job.get("stack", {}), ensure_ascii=False),
-            "result_json": "{}",
+            "result_json": json.dumps(job.get("result", {}), ensure_ascii=False),
             "error": None,
         }
         with self._connect() as connection:

@@ -32,10 +32,16 @@ class WorkflowError(RuntimeError):
 
 
 class LocalWorkflow:
-    def __init__(self, project_root: str | Path, agent: AgentPort | None = None) -> None:
+    def __init__(
+        self,
+        project_root: str | Path,
+        agent: AgentPort | None = None,
+        source_visual_evidence: bool | None = None,
+    ) -> None:
         self.project_root = Path(project_root).resolve()
         self.vaf_root = self.project_root / ".vaf"
         self.agent = agent or FakeAgent()
+        self.source_visual_evidence = source_visual_evidence
 
     def init_project(self) -> list[Path]:
         self._require_git_repo()
@@ -232,7 +238,12 @@ class LocalWorkflow:
         content = Path(state.artifact_path).read_text(encoding="utf-8")
         metadata, body = split_frontmatter(content)
         artifact = ArtifactVersion.from_markdown(content)
-        gate = evaluate_artifact_gate(artifact.artifact_type.value, content, target_hash=artifact.content_hash)
+        gate = evaluate_artifact_gate(
+            artifact.artifact_type.value,
+            content,
+            target_hash=artifact.content_hash,
+            source_visual_evidence=self.source_visual_evidence,
+        )
         return {"state": state.__dict__, "metadata": _json_safe(metadata), "body": body, "gate": gate.to_dict()}
 
     def approve(self, run_id: str, actor: str, target_hash: str, comment: str = "") -> RunState:
@@ -244,7 +255,12 @@ class LocalWorkflow:
         current_artifact = ArtifactVersion.from_markdown(content)
         if current_artifact.content_hash != target_hash:
             raise WorkflowError("VAF-APPROVAL-STALE: artifact changed after review; review it again")
-        gate = evaluate_artifact_gate(current_artifact.artifact_type.value, content, target_hash=target_hash)
+        gate = evaluate_artifact_gate(
+            current_artifact.artifact_type.value,
+            content,
+            target_hash=target_hash,
+            source_visual_evidence=self.source_visual_evidence,
+        )
         self._append_event(
             run_id,
             EventEnvelope.create(

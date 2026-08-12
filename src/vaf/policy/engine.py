@@ -78,7 +78,7 @@ class PolicyEngine:
                     "v0.1 worktrees must use HEAD as the base ref",
                 )
             return PolicyDecision(decision_id, PolicyDecisionType.ALLOW, "VAF-POLICY-WORKTREE", "worktree request is constrained")
-        if request.tool_name in {"write_file", "run_command"}:
+        if request.tool_name in {"read_document", "read_file", "write_file", "run_command"}:
             path = request.args.get("path")
             if path is not None and not self._inside_workspace(request.workspace_root, Path(str(path))):
                 return PolicyDecision(

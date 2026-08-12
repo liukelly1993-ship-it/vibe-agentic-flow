@@ -91,6 +91,7 @@ input:focus { border-color: #75d9c4; box-shadow: 0 0 0 3px rgba(117, 217, 196, .
 .job-row span { color: #849a9a; font-size: 11px; }
 .job-row .job-state { color: #8ce4d0; text-align: right; }
 .job-row .job-state.failed { color: #ff9d97; }
+.job-row .job-state.blocked { color: #f4bd64; }
 .empty-state { padding: 30px 0; color: #758a8b; font-size: 13px; text-align: center; }
 .footer { width: min(1180px, calc(100% - 48px)); display: flex; justify-content: space-between; margin: 0 auto; padding: 0 0 28px; }
 @media (max-width: 780px) {

@@ -77,6 +77,7 @@ def evaluate_artifact_gate(
     *,
     target_hash: str | None = None,
     threshold: float = 90.0,
+    source_visual_evidence: bool | None = None,
 ) -> GateResult:
     """Evaluate an artifact before automatic stage promotion.
 
@@ -134,7 +135,14 @@ def evaluate_artifact_gate(
     sections_passed = all(re.search(pattern, content, re.IGNORECASE) for pattern in requirements["sections"])
     section_evidence = "关键章节齐全" if sections_passed else "缺少关键章节"
     criteria.append(
-        GateCriterion("SECTIONS", "关键章节完整性", 20.0, sections_passed, True, section_evidence)
+        GateCriterion(
+            "SECTIONS",
+            "关键章节完整性",
+            15.0 if artifact_type == "prd" else 20.0,
+            sections_passed,
+            True,
+            section_evidence,
+        )
     )
     if not sections_passed:
         findings.append(
@@ -152,7 +160,7 @@ def evaluate_artifact_gate(
         GateCriterion(
             "EVIDENCE",
             "可验证性",
-            20.0,
+            10.0 if artifact_type == "prd" else 20.0,
             evidence_passed,
             True,
             "存在可执行或可检查的验证描述" if evidence_passed else "未找到可验证描述",
@@ -168,6 +176,40 @@ def evaluate_artifact_gate(
                 "补充测试、验收、验证或完成条件",
             )
         )
+
+    if artifact_type == "prd":
+        prototype_passed = (
+            source_visual_evidence
+            if source_visual_evidence is not None
+            else _has_visual_evidence_reference(content)
+        )
+        prototype_evidence = (
+            "摄取层检测到原型图片或页面截图"
+            if source_visual_evidence is True
+            else "产物包含原型图片或页面截图引用"
+            if source_visual_evidence is None and prototype_passed
+            else "摄取层未检测到原型图片或页面截图"
+        )
+        criteria.append(
+            GateCriterion(
+                "PROTOTYPE",
+                "原型视觉证据",
+                15.0,
+                bool(prototype_passed),
+                True,
+                prototype_evidence,
+            )
+        )
+        if not prototype_passed:
+            findings.append(
+                GateFinding(
+                    "GATE-PROTOTYPE-001",
+                    "P0",
+                    "PROTOTYPE",
+                    "PRD 缺少原型图片或页面截图，不能进入下一阶段",
+                    "在 PRD 中补充真实原型图、页面截图或线框图后重新上传；文字描述不能替代视觉证据",
+                )
+            )
 
     reviewability_passed = bool(content.strip()) and not bool(re.search(r"\b(?:TODO|TBD)\b|待补充", content, re.IGNORECASE))
     criteria.append(
@@ -490,6 +532,9 @@ def validate_domain_contract(
         "订单接口": ("/api/orders", "orders"),
         "默认货到付款": ("货到付款", "cash_on_delivery", "cod"),
         "AI 客服接口": ("/api/ai-chat", "ai_chat"),
+        "可解释检索索引": ("VectorSearchIndex", "similarity_search", "embedding"),
+        "无关查询保护": ("fallback_hint", "没有找到匹配", "no relevant products"),
+        "商城视觉展示": ("<img", "product-grid", "empty-state"),
     }
     return [
         f"商城 PRD 契约缺少：{label}"
@@ -542,3 +587,13 @@ def _required_patterns(artifact_type: str) -> dict[str, object]:
         "sections": (r"完成条件|实施|实现",),
         "evidence": r"完成条件|测试|验证|TraceLink",
     }
+
+
+def _has_visual_evidence_reference(content: str) -> bool:
+    return bool(
+        re.search(
+            r"!\[[^\]]*\]\([^\n)]+\)|<img\b[^>]*\bsrc\s*=",
+            content,
+            re.IGNORECASE,
+        )
+    )

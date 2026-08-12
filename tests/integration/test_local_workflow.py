@@ -101,6 +101,10 @@ THE SYSTEM SHALL 返回结果
 
 AC-001：需要自动化测试验证。
 
+## 原型证据
+
+![原型图](https://example.invalid/gate-prototype.png)
+
 TODO：补充异常场景。
 """,
                         assumptions=(),

@@ -56,11 +56,12 @@ form.addEventListener("submit", async (event) => {
   try {
     let response;
     const title = document.querySelector("#project-title").value;
+    const knowledgePath = document.querySelector("#knowledge-path").value;
     if (sourceMode === "feishu") {
       response = await fetch("/api/jobs/from-feishu", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: document.querySelector("#feishu-url").value, title }),
+        body: JSON.stringify({ url: document.querySelector("#feishu-url").value, title, knowledge_path: knowledgePath }),
       });
     } else {
       const file = fileInput.files[0];
@@ -68,6 +69,7 @@ form.addEventListener("submit", async (event) => {
       const payload = new FormData();
       payload.append("file", file);
       payload.append("title", title);
+      payload.append("knowledge_path", knowledgePath);
       response = await fetch("/api/jobs", { method: "POST", body: payload });
     }
     const body = await response.json();
@@ -79,7 +81,7 @@ form.addEventListener("submit", async (event) => {
     formError.textContent = error.message;
   } finally {
     startButton.disabled = false;
-    startButton.querySelector("span").textContent = "Start";
+    startButton.querySelector("span").textContent = "Review & Start";
   }
 });
 
@@ -92,7 +94,7 @@ async function poll(jobId) {
     if (!response.ok) return;
     const job = await response.json();
     showActiveJob(job);
-    if (["COMPLETED", "FAILED"].includes(job.status)) {
+    if (["COMPLETED", "FAILED", "BLOCKED"].includes(job.status)) {
       clearInterval(pollTimer);
       pollTimer = null;
       loadJobs();
@@ -125,11 +127,14 @@ function showActiveJob(job) {
   status.className = `run-badge ${job.status.toLowerCase()}`;
   document.querySelector("#active-hash").textContent = shortHash(job.source_hash);
   const stack = job.stack || {};
-  document.querySelector("#active-stack").textContent = stack.backend ? `${stack.backend} + ${stack.frontend}` : "-";
+  document.querySelector("#active-stack").textContent = stack.backend ? `${stack.frontend} + ${stack.backend} + ${stack.database}` : "-";
+  const prdScore = job.prd_review?.score;
+  document.querySelector("#active-prd-score").textContent = prdScore == null ? "pending" : `${Number(prdScore).toFixed(1)} / 100`;
   const score = job.quality_gate?.score;
-  document.querySelector("#active-score").textContent = score == null ? "pending" : `${Number(score).toFixed(1)} / 100`;
+  const deliveryScore = job.trace_status ? score : null;
+  document.querySelector("#active-score").textContent = deliveryScore == null ? "pending" : `${Number(deliveryScore).toFixed(1)} / 100`;
   const frontendBuild = job.result?.frontend_validation;
-  document.querySelector("#active-frontend").textContent = frontendBuild?.passed ? "passed" : job.status === "FAILED" ? "failed" : "pending";
+  document.querySelector("#active-frontend").textContent = frontendBuild?.passed ? "passed" : ["FAILED", "BLOCKED"].includes(job.status) ? "not run" : "pending";
   document.querySelector("#progress-label").textContent = phaseLabel(job.phase);
   document.querySelector("#progress-bar").style.width = `${phaseProgress(job.phase)}%`;
   document.querySelector("#active-error").textContent = job.error || job.progress?.error || "";
@@ -140,8 +145,8 @@ function showActiveJob(job) {
 }
 
 function renderTimeline(phase) {
-  const stages = [["Parse", "文档"], ["Plan", "方案"], ["Build", "代码"], ["Prove", "验证"], ["Deliver", "交付"]];
-  const index = ["queued", "preparing-project", "score-gated-generation", "completed"].indexOf(phase);
+  const stages = [["Review", "PRD"], ["Plan", "方案"], ["Build", "代码"], ["Prove", "验证"], ["Deliver", "交付"]];
+  const index = ["queued", "reviewing-prd", "preparing-project", "score-gated-generation", "completed"].indexOf(phase);
   document.querySelector("#run-timeline").innerHTML = stages.map((stage, itemIndex) => {
     const state = itemIndex < index ? "is-done" : itemIndex === index ? "is-current" : "";
     return `<li class="${state}"><strong>${stage[0]}</strong><small>${stage[1]}</small></li>`;
@@ -149,7 +154,7 @@ function renderTimeline(phase) {
 }
 
 function renderJob(job) {
-  const stateClass = job.status === "FAILED" ? "failed" : "";
+  const stateClass = job.status === "FAILED" ? "failed" : job.status === "BLOCKED" ? "blocked" : "";
   return `<button class="job-row" data-job-id="${job.job_id}" type="button">
     <strong>${escapeHtml(job.title || job.job_id)}</strong>
     <span>${escapeHtml(job.source_type || "upload")}</span>
@@ -159,11 +164,11 @@ function renderJob(job) {
 }
 
 function phaseLabel(phase) {
-  return { queued: "等待后台执行", "preparing-project": "初始化隔离项目", "score-gated-generation": "自动生成、验证和评分", completed: "交付完成", failed: "任务失败" }[phase] || phase || "处理中";
+  return { queued: "等待后台执行", "reviewing-prd": "评审 PRD 与知识证据", "preparing-project": "初始化隔离项目", "score-gated-generation": "自动生成、验证和评分", completed: "交付完成", failed: "任务失败", blocked: "门禁阻断，等待补充可信输入" }[phase] || phase || "处理中";
 }
 
 function phaseProgress(phase) {
-  return { queued: 4, "preparing-project": 18, "score-gated-generation": 64, completed: 100, failed: 100 }[phase] || 8;
+  return { queued: 4, "reviewing-prd": 12, "preparing-project": 24, "score-gated-generation": 64, completed: 100, failed: 100, blocked: 100 }[phase] || 8;
 }
 
 function shortHash(value) { return value ? `${value.slice(0, 16)}…` : "-"; }

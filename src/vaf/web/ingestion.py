@@ -30,6 +30,7 @@ class IngestedDocument:
     source_ref: str
     text: str
     content_hash: str
+    has_visual_evidence: bool = False
 
     @property
     def character_count(self) -> int:
@@ -45,7 +46,13 @@ def ingest_upload(filename: str, content: bytes) -> IngestedDocument:
         )
     _check_size(content)
     text = _extract_text(suffix, content)
-    return _make_document(safe_name, "upload", safe_name, text)
+    return _make_document(
+        safe_name,
+        "upload",
+        safe_name,
+        text,
+        has_visual_evidence=_detect_visual_evidence(suffix, content, text),
+    )
 
 
 def ingest_feishu(url: str) -> IngestedDocument:
@@ -73,10 +80,24 @@ def ingest_feishu(url: str) -> IngestedDocument:
     text = _extract_text(".html" if "html" in content_type else ".txt", content)
     if len(re.sub(r"\s+", "", text)) < 40:
         raise DocumentIngestionError("飞书链接没有返回可读正文；请确认链接可公开访问，或下载后上传 PDF/Markdown")
-    return _make_document("feishu-document", "feishu", url, text)
+    suffix = ".html" if "html" in content_type else ".txt"
+    return _make_document(
+        "feishu-document",
+        "feishu",
+        url,
+        text,
+        has_visual_evidence=_detect_visual_evidence(suffix, content, text),
+    )
 
 
-def _make_document(name: str, source_type: str, source_ref: str, text: str) -> IngestedDocument:
+def _make_document(
+    name: str,
+    source_type: str,
+    source_ref: str,
+    text: str,
+    *,
+    has_visual_evidence: bool = False,
+) -> IngestedDocument:
     normalized = text.replace("\x00", "").strip()
     if not normalized:
         raise DocumentIngestionError("文档正文为空，无法启动研发流程")
@@ -86,6 +107,7 @@ def _make_document(name: str, source_type: str, source_ref: str, text: str) -> I
         source_ref=source_ref,
         text=normalized,
         content_hash=f"sha256:{sha256(normalized.encode('utf-8')).hexdigest()}",
+        has_visual_evidence=has_visual_evidence,
     )
 
 
@@ -126,6 +148,25 @@ def _extract_docx(content: bytes) -> str:
         if value.strip():
             paragraphs.append(value.strip())
     return "\n\n".join(paragraphs)
+
+
+def _detect_visual_evidence(suffix: str, content: bytes, text: str) -> bool:
+    """Detect source-level visual evidence without trusting generated prose."""
+
+    decoded = content.decode("utf-8", errors="ignore")
+    if re.search(r"!\[[^\]]*\]\([^\n)]+\)|<img\b[^>]*\bsrc\s*=", decoded, re.IGNORECASE):
+        return True
+    if re.search(r"!\[[^\]]*\]\([^\n)]+\)|<img\b", text, re.IGNORECASE):
+        return True
+    if suffix == ".pdf":
+        return bool(re.search(rb"/Subtype\s*/Image\b", content))
+    if suffix == ".docx":
+        try:
+            with zipfile.ZipFile(BytesIO(content)) as archive:
+                return any(name.startswith("word/media/") for name in archive.namelist())
+        except zipfile.BadZipFile:
+            return False
+    return False
 
 
 class _HtmlTextParser(HTMLParser):

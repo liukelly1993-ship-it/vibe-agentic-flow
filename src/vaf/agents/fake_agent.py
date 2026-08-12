@@ -47,6 +47,10 @@ THE SYSTEM SHALL 提供可验证的实现结果
 
 - AC-001：核心行为可以通过自动化测试验证。
 - AC-002：失败时保留真实错误证据，不生成虚假成功结论。
+
+## 原型证据
+
+![测试原型图](https://example.invalid/vaf-test-prototype.png)
 """
         return DraftResult(
             artifact_type="prd",

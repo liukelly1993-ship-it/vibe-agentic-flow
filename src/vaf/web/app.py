@@ -22,6 +22,7 @@ from vaf.application.local_workflow import LocalWorkflow, WorkflowError
 from vaf.domain.ids import new_id
 from vaf.web.ingestion import DocumentIngestionError, IngestedDocument, ingest_feishu, ingest_upload
 from vaf.web.prd_agent import PrdContext, PrdTemplateAgent
+from vaf.web.prd_review import KnowledgeBaseError, load_knowledge_base, review_source_prd
 from vaf.web.stacks import choose_stack
 from vaf.web.store import JobStore
 
@@ -33,7 +34,12 @@ class VafWebService:
         self.store = JobStore(self.data_root / "jobs.sqlite3")
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="vaf-job")
 
-    def create_job(self, document: IngestedDocument, title: str | None) -> dict[str, Any]:
+    def create_job(
+        self,
+        document: IngestedDocument,
+        title: str | None,
+        knowledge_path: str | None = None,
+    ) -> dict[str, Any]:
         job_id = new_id("JOB")
         job_root = self.data_root / "jobs" / job_id
         job_root.mkdir(parents=True, exist_ok=False)
@@ -49,17 +55,56 @@ class VafWebService:
                 "source_hash": document.content_hash,
                 "project_path": str(job_root / "project"),
                 "stack": choice.to_dict(),
+                "result": {"knowledge_path": knowledge_path.strip() if knowledge_path and knowledge_path.strip() else None},
             }
         )
-        self.executor.submit(self._run_job, job_id, document, record["title"], choice)
+        self.executor.submit(self._run_job, job_id, document, record["title"], choice, knowledge_path)
         return _public_job(record)
 
-    def _run_job(self, job_id: str, document: IngestedDocument, title: str, choice: Any) -> None:
+    def _run_job(
+        self,
+        job_id: str,
+        document: IngestedDocument,
+        title: str,
+        choice: Any,
+        knowledge_path: str | None,
+    ) -> None:
         job_root = self.data_root / "jobs" / job_id
         project_path = job_root / "project"
         implementation_path = job_root / "implementation.yaml"
+        workflow: LocalWorkflow | None = None
         try:
-            self.store.update(job_id, status="RUNNING", phase="preparing-project")
+            self.store.update(job_id, status="RUNNING", phase="reviewing-prd")
+            knowledge_snapshot = None
+            if knowledge_path and knowledge_path.strip():
+                try:
+                    knowledge_snapshot = load_knowledge_base(knowledge_path.strip())
+                except KnowledgeBaseError as exc:
+                    self._merge_result(job_id, {"knowledge_base": {"error": str(exc)}})
+                    self.store.update(
+                        job_id,
+                        status="BLOCKED",
+                        phase="blocked",
+                        error=f"VAF-PRD-KB-001: {exc}",
+                    )
+                    return
+            source_review = review_source_prd(document, knowledge_snapshot)
+            self._merge_result(job_id, {"prd_review": source_review.to_dict()})
+            if not source_review.passed:
+                messages = [finding.message for finding in source_review.findings]
+                reason = "；".join(messages[:3]) or "PRD 准入评分未严格大于 90"
+                self.store.update(
+                    job_id,
+                    status="BLOCKED",
+                    phase="blocked",
+                    error=(
+                        f"VAF-PRD-GATE-001: {source_review.decision.value}, "
+                        f"score={source_review.score:.2f}, threshold>{source_review.threshold:.2f}; {reason}"
+                    ),
+                )
+                return
+
+            self.store.update(job_id, phase="preparing-project")
             _initialize_git_repo(project_path)
             context = PrdContext(
                 title=title,
@@ -67,13 +112,18 @@ class VafWebService:
                 source_text=document.text,
                 source_hash=document.content_hash,
                 stack=choice,
+                has_visual_evidence=document.has_visual_evidence,
             )
             agent = PrdTemplateAgent(context)
             implementation_path.write_text(
                 _implementation_yaml(agent.implementation_items()), encoding="utf-8"
             )
             self.store.update(job_id, phase="score-gated-generation")
-            workflow = LocalWorkflow(project_path, agent=agent)
+            workflow = LocalWorkflow(
+                project_path,
+                agent=agent,
+                source_visual_evidence=document.has_visual_evidence,
+            )
             result = workflow.autopilot(
                 change_id=f"CHG-{job_id.split('-')[-1]}",
                 title=title,
@@ -89,12 +139,9 @@ class VafWebService:
                 raise WorkflowError(
                     f"VAF-FRONTEND-001: {frontend_validation.get('error', '前端构建失败')}"
                 )
-            self.store.update(
+            self._merge_result(
                 job_id,
-                status="COMPLETED",
-                phase="completed",
-                generated_path=generated_path,
-                result={
+                {
                     "run_id": state.get("run_id"),
                     "state": state,
                     "trace": result.get("trace", {}),
@@ -103,15 +150,42 @@ class VafWebService:
                     "implementation_path": str(implementation_path),
                 },
             )
+            self.store.update(
+                job_id,
+                status="COMPLETED",
+                phase="completed",
+                generated_path=generated_path,
+            )
         except Exception as exc:
-            self.store.update(job_id, status="FAILED", phase="failed", error=_safe_error(exc))
+            current = self.store.get(job_id) or {}
+            result = current.get("result", {})
+            if workflow is not None and isinstance(result, dict):
+                progress = result.get("progress", {})
+                run_id = progress.get("run_id") if isinstance(progress, dict) else None
+                if run_id:
+                    try:
+                        result["artifact_gate"] = workflow.review(str(run_id))["gate"]
+                        self.store.update(job_id, result=result)
+                    except Exception:
+                        pass
+            blocked = isinstance(exc, WorkflowError) and "BLOCKED" in str(exc)
+            self.store.update(
+                job_id,
+                status="BLOCKED" if blocked else "FAILED",
+                phase="blocked" if blocked else "failed",
+                error=_safe_error(exc),
+            )
 
     def _update_progress(self, job_id: str, progress: dict[str, Any]) -> None:
-        self.store.update(
-            job_id,
-            phase="score-gated-generation",
-            result={"progress": progress},
-        )
+        self._merge_result(job_id, {"progress": progress})
+        self.store.update(job_id, phase="score-gated-generation")
+
+    def _merge_result(self, job_id: str, values: dict[str, Any]) -> None:
+        current = self.store.get(job_id) or {}
+        result = current.get("result", {})
+        merged = dict(result) if isinstance(result, dict) else {}
+        merged.update(values)
+        self.store.update(job_id, result=merged)
 
     def get(self, job_id: str) -> dict[str, Any]:
         record = self.store.get(job_id)
@@ -142,6 +216,7 @@ def create_app(data_root: str | Path | None = None) -> FastAPI:
         file: UploadFile | None = File(default=None),
         feishu_url: str | None = Form(default=None),
         title: str | None = Form(default=None),
+        knowledge_path: str | None = Form(default=None),
     ) -> dict[str, Any]:
         if file is None and not (feishu_url and feishu_url.strip()):
             raise HTTPException(status_code=400, detail="请上传 PRD 文件或填写飞书文档链接")
@@ -150,7 +225,7 @@ def create_app(data_root: str | Path | None = None) -> FastAPI:
                 document = ingest_upload(file.filename or "prd.md", await file.read())
             else:
                 document = ingest_feishu(feishu_url or "")
-            return service.create_job(document, title)
+            return service.create_job(document, title, knowledge_path)
         except DocumentIngestionError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -159,7 +234,11 @@ def create_app(data_root: str | Path | None = None) -> FastAPI:
         url = str(payload.get("url", "")).strip()
         try:
             document = ingest_feishu(url)
-            return service.create_job(document, str(payload.get("title", "")))
+            return service.create_job(
+                document,
+                str(payload.get("title", "")),
+                str(payload.get("knowledge_path", "")),
+            )
         except DocumentIngestionError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -294,6 +373,8 @@ def _infer_objective(text: str) -> str:
 def _public_job(record: dict[str, Any]) -> dict[str, Any]:
     result = record.get("result", {})
     trace = result.get("trace", {}) if isinstance(result, dict) else {}
+    artifact_gate = result.get("artifact_gate", {}) if isinstance(result, dict) else {}
+    prd_review = result.get("prd_review", {}) if isinstance(result, dict) else {}
     return {
         "job_id": record.get("job_id"),
         "title": record.get("title"),
@@ -309,7 +390,9 @@ def _public_job(record: dict[str, Any]) -> dict[str, Any]:
         "error": record.get("error"),
         "run_id": result.get("run_id") if isinstance(result, dict) else None,
         "trace_status": trace.get("status"),
-        "quality_gate": trace.get("quality_gate", {}),
+        "quality_gate": artifact_gate or trace.get("quality_gate", {}) or prd_review,
+        "artifact_gate": artifact_gate,
+        "prd_review": prd_review,
         "progress": result.get("progress", {}) if isinstance(result, dict) else {},
         "result": result,
     }
@@ -334,7 +417,12 @@ def _verify_frontend_build(generated_path: object) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix="vaf-frontend-verify-") as directory:
         isolated = Path(directory) / "frontend"
         npm_environment = os.environ.copy()
-        npm_environment["NPM_CONFIG_CACHE"] = str(Path(directory) / "npm-cache")
+        npm_cache = Path.home() / ".cache" / "vaf" / "npm-cache"
+        npm_cache.mkdir(parents=True, exist_ok=True)
+        npm_environment["NPM_CONFIG_CACHE"] = str(npm_cache)
+        npm_environment["NPM_CONFIG_REGISTRY"] = os.environ.get(
+            "VAF_NPM_REGISTRY", "https://registry.npmjs.org"
+        )
         shutil.copytree(
             source,
             isolated,

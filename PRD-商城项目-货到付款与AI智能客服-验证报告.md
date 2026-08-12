@@ -2,34 +2,30 @@
 
 ## 结论
 
-基于 `/Users/wanjiaheng/Downloads/PRD-商城项目-货到付款与AI智能客服.md`，VAF Web 主流程已完成一次真实上传和自动化交付验证。
+历史任务 `JOB-0d3b7ced382a` 使用旧版门禁，错误地把没有原型图片的 PRD 自动生成到完成，结论已撤销。
 
-本次任务：`JOB-0d3b7ced382a`
+新增 P0 原型门禁后，使用同一份原始 PRD 重新验证：
 
-结果：`COMPLETED`
-
-质量门：`100 / 100`，严格大于 `90`
-
-Trace：`passed`
+- 任务：`JOB-9952ada18248`
+- 结果：`FAILED / BLOCKED`
+- PRD 门禁：`85.00 / 100`
+- 错误：缺少原型图片或页面截图，不能进入下一阶段
+- 生成项目：无，`generated_path=null`
 
 ## 已验证链路
 
 - 通过 `http://127.0.0.1:8787` 上传 Markdown PRD。
-- 保存来源哈希，并生成 PRD、技术方案、测试用例和实施计划产物。
-- 无人工审批自动推进；评分不达标时回到当前阶段重新生成。
-- 在隔离 Git worktree 写入前后端项目。
-- 商城领域契约通过：AI 选品、商品、订单/COD、AI 客服接口均存在。
-- 后端 `unittest`：2 个测试通过。
-- 前端 `npm install --legacy-peer-deps --no-audit --no-fund` 通过。
-- 前端 `npm run build` 通过。
-- 运行态接口通过：商品查询、AI 选品、创建 COD 订单、订单状态更新、AI 客服和商家商品接口。
-- ZIP 下载通过，包含 14 个源文件，不包含 `node_modules` 或 `frontend/dist`。
+- 摄取层确认原始 Markdown 不含图片引用。
+- PRD 结构分数为 85 分，`GATE-PROTOTYPE-001` 以 P0 阻断。
+- 没有生成技术方案、测试用例、实施计划、代码、前端构建或 ZIP。
 
-## 生成项目
+## 修复条件
 
-生成项目路径：
+在 PRD 中补充真实原型图、页面截图或线框图后重新上传。只有门禁检测到来源视觉证据且 PRD 分数严格大于 90 时，才允许继续生成代码。
 
-`/Users/wanjiaheng/Documents/工作/workspace/ai-agent/project/vaf/.vaf-web/jobs/JOB-0d3b7ced382a/.vaf-worktrees/CHG-0d3b7ced382a-RUN-1f42f4ca4cf5`
+当前按该 PRD 生成的需求、验收、测试和回归预览见：
+
+`/Users/wanjiaheng/Documents/工作/workspace/ai-agent/project/vaf/PRD-商城项目-货到付款与AI智能客服-测试用例与验收预览.md`
 
 ## 当前边界
 

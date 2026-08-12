@@ -65,9 +65,12 @@
             <label class="field-label" for="project-title">项目名称 <span>可选</span></label>
             <input id="project-title" name="title" type="text" placeholder="默认从 PRD 标题识别" maxlength="120" />
 
+            <label class="field-label" for="knowledge-path">本地知识库目录 <span>按 PRD 风险选填</span></label>
+            <input id="knowledge-path" name="knowledge_path" type="text" placeholder="/absolute/path/to/knowledge-base" autocomplete="off" />
+
             <div class="action-row">
-              <button id="start-button" class="primary-button" type="submit"><span>Start</span><span aria-hidden="true">→</span></button>
-              <span class="action-note">无需人工审批 · 后台持续执行</span>
+              <button id="start-button" class="primary-button" type="submit"><span>Review &amp; Start</span><span aria-hidden="true">→</span></button>
+              <span class="action-note">PRD 严格大于 90 分后自动执行</span>
             </div>
             <div id="form-error" class="form-error" role="alert"></div>
           </form>
@@ -80,7 +83,7 @@
               </div>
             </div>
             <ol class="contract-list">
-              <li><span>01</span><div><strong>Parse</strong><small>来源哈希与正文提取</small></div></li>
+              <li><span>01</span><div><strong>Review</strong><small>PRD 准入与知识证据</small></div></li>
               <li><span>02</span><div><strong>Plan</strong><small>PRD / 方案 / 测试 / 任务</small></div></li>
               <li><span>03</span><div><strong>Build</strong><small>隔离 worktree 生成前后端</small></div></li>
               <li><span>04</span><div><strong>Prove</strong><small>测试、Trace、质量评分</small></div></li>
@@ -106,7 +109,8 @@
             <div class="evidence-column">
               <div class="evidence-card"><span>Source hash</span><strong id="active-hash">-</strong></div>
               <div class="evidence-card"><span>Selected stack</span><strong id="active-stack">-</strong></div>
-              <div class="evidence-card"><span>Quality gate</span><strong id="active-score">-</strong></div>
+              <div class="evidence-card"><span>PRD admission</span><strong id="active-prd-score">-</strong></div>
+              <div class="evidence-card"><span>Delivery gate</span><strong id="active-score">-</strong></div>
               <div class="evidence-card"><span>Frontend build</span><strong id="active-frontend">pending</strong></div>
               <div id="active-error" class="form-error"></div>
               <a id="download-link" class="secondary-button is-hidden" href="#">Download project <span>↓</span></a>

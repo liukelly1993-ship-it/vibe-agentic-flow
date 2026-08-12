@@ -25,8 +25,8 @@ class StackChoice:
 
 def choose_stack(prd_text: str) -> StackChoice:
     text = prd_text.lower()
-    frontend = "Vue 3 + Vite" if any(token in text for token in ("vue", "nuxt")) else "React + Vite"
-    database = "PostgreSQL" if any(token in text for token in ("postgres", "postgresql", "高并发", "多租户")) else "SQLite"
+    frontend = "Vue 3 + Vite"
+    database = "MySQL" if any(token in text for token in ("mysql", "mariadb")) else "PostgreSQL"
     warnings: list[str] = []
     if "next.js" in text or "nextjs" in text:
         warnings.append(
@@ -38,14 +38,14 @@ def choose_stack(prd_text: str) -> StackChoice:
         warnings.append("PRD 提到了 OpenAI；当前 M0 使用确定性本地 AI 适配器，不读取密钥也不调用外部模型。")
     if "vercel" in text:
         warnings.append("PRD 提到了 Vercel；当前 M0 只交付本地项目和构建证据，尚未执行云端部署。")
+    if any(token in text for token in ("react", "next.js", "nextjs", "nuxt")):
+        warnings.append("PRD 提到了其他前端框架；当前交付基线固定为 Vue 3 + Vite。")
     if any(token in text for token in ("java", "spring boot", "nestjs", "express")):
         warnings.append("PRD 提到了其他后端生态；当前本地闭环采用 FastAPI 适配器，保留清晰的领域边界，后续可替换 Provider。")
-    if database == "PostgreSQL":
-        warnings.append("当前演示模板默认使用 SQLite 以保证本地零配置运行，数据库端口保持可替换。")
     return StackChoice(
         backend="FastAPI",
         frontend=frontend,
         database=database,
-        reason="Python 后端适合快速本地验证，Vite 前端适合独立开发和构建；数据库按需求关键词选择本地默认或生产候选。",
+        reason="交付基线固定为 FastAPI + Vue 3/Vite；数据库默认 PostgreSQL，PRD 明确要求 MySQL/MariaDB 时切换。",
         warnings=tuple(warnings),
     )

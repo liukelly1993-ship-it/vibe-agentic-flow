@@ -112,7 +112,7 @@ flowchart TB
 | `RunStore` | 追加事件、重建状态、查询运行 | JSONL + index.yaml |
 | `AgentPort` | 生成结构化草稿 | Fake Agent first |
 
-GateService 的详细门禁、评分、回退和防幻觉契约见 [VAF-Gate-Design.md](./VAF-Gate-Design.md)。M0 的 GateService 执行确定性结构、引用、可验证性和代码质量检查；模型输出不能替代硬规则和证据，`autopilot` 不等待人工审批。
+GateService 的详细门禁、评分、回退和防幻觉契约见 [VAF-Gate-Design.md](./VAF-Gate-Design.md)。M0 的 GateService 执行确定性结构、引用、可验证性、来源视觉证据和代码质量检查；模型输出不能替代硬规则和证据，`autopilot` 不等待人工审批。PRD 没有原型图片或页面截图时固定为 P0 `BLOCKED`，不会进入技术方案和代码生成。
 
 ## 4. 领域模型
 
@@ -863,7 +863,7 @@ project/vaf/
 
 ## 18. 当前实现状态与下一步
 
-当前 M0 已完成 Slice 1–7 的最小可运行闭环，并有 44 个 unittest 覆盖领域、Policy、Gate 评分、P1 驳回回退和 P0 阻断、审批旧哈希拒绝、事件恢复、worktree、代码写入、manifest 验证命令、验证证据失效、文档摄取和 Web 集成场景。代码生成仍使用显式文件计划驱动的确定性本地 Agent；当前已实现确定性产物 Gate、代码质量评分、商城高信号领域契约、显式 TraceLink、覆盖率质量门、无人工 `autopilot` 和 Web 上传入口，真实 LLM、需要登录的飞书文档、语义关系自动推断、CI/CD 和部署适配器不在当前实现内。
+当前 M0 已完成 Slice 1–7 的最小可运行闭环，并有 51 个 unittest 覆盖领域、Policy、Gate 评分、P1 驳回回退和 P0 阻断、原型视觉证据、商城 PRD 需求/验收/测试生成、审批旧哈希拒绝、事件恢复、worktree、代码写入、manifest 验证命令、验证证据失效、文档摄取和 Web 集成场景。代码生成仍使用显式文件计划驱动的确定性本地 Agent；当前已实现确定性产物 Gate、代码质量评分、商城高信号领域契约、显式 TraceLink、覆盖率质量门、无人工 `autopilot` 和 Web 上传入口，真实 LLM、需要登录的飞书文档、语义关系自动推断、CI/CD 和部署适配器不在当前实现内。
 
 下一批实现建议为：
 

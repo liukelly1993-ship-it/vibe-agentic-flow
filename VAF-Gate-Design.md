@@ -54,9 +54,12 @@ M0 已实现 Schema、对象引用和确定性 Gate 评审，并在 `review` 输
 | 目标、用户和业务价值 | 15 |
 | 范围、非目标和约束 | 15 |
 | REQ 完整性和无歧义 | 25 |
-| AC 可观察、可测试 | 20 |
+| AC 可观察、可测试 | 10 |
 | 风险、假设和可行性 | 15 |
-| 需求到 AC 的追踪 | 10 |
+| 需求到 AC 的追踪 | 5 |
+| 原型图片或页面截图 | 15 |
+
+原型视觉证据是 PRD 的 P0 硬门禁，不是可选加分项。Markdown/HTML 使用图片引用，PDF 使用图像对象，DOCX 使用嵌入媒体，飞书 HTML 使用图片标签；摄取层记录的来源事实传入 Gate Engine。没有视觉证据时 PRD 最高只能得到 85 分，并直接 `BLOCKED`，不能靠模型自声明或文字描述通过。
 
 ### 方案门 100 分
 
@@ -135,7 +138,8 @@ invalidated_artifact_hashes: [sha256:...]
 1. **来源约束：** Agent 只能读取已批准的 Artifact、仓库快照和显式规则；每个输入带路径、版本和哈希。
 2. **结构化输出：** REQ、AC、TC、TASK、接口和风险必须有稳定 ID，禁止只输出自然语言结论。
 3. **证据绑定：** 每个结论必须引用 Artifact、代码、测试或工具证据；没有证据只能标记 `UNVERIFIED`，不能计入通过分数。
-4. **确定性校验：** Schema、引用存在性、哈希、编译、测试、静态扫描、路径范围和命令策略由代码检查，不交给 LLM 判断。
+4. **原型来源校验：** 原型图片是否存在由摄取层检查原始文件或 HTML/Markdown 内容，Gate Engine 使用该事实；Agent 不能通过补写 `prototype_evidence: true` 伪造来源。
+5. **确定性校验：** Schema、引用存在性、哈希、编译、测试、静态扫描、路径范围和命令策略由代码检查，不交给 LLM 判断。
 5. **独立评审：** 生成 Agent 不能同时担任唯一 Critic；后续至少使用独立上下文和独立提示的评审 Agent。
 6. **不确定性阻塞：** 关键事实缺失、冲突或出现 `[BLOCKED]` 时进入 `BLOCKED`，等待新的可信输入，不允许 Agent 猜测。
 7. **权限隔离：** 评审 Agent 不拥有写代码、部署或读取 Secret 的权限；工具动作继续经过 ToolGateway。
@@ -153,6 +157,7 @@ invalidated_artifact_hashes: [sha256:...]
 - `autopilot` 在分数通过时自动推进，不等待人工审批。
 - `NEEDS_CHANGES` 会追加 `ArtifactChangesRequested`，默认将 `correction_target_stage` 设为当前产物阶段并回到该阶段重新生成。
 - `BLOCKED` 会追加 `GateBlocked` 并停止自动推进，直到出现新的可信输入；安全、悬空引用、验证失败和关键事实缺失不能靠重试消除。
+- PRD 缺少原型图片或页面截图时，产品门固定为 P0 `BLOCKED`，不会生成技术方案或代码。
 - FakeAgent 的 PRD、技术方案、测试用例和实施计划可通过当前基础 Rubric。
 
 尚未落地：独立 LLM Critic、可配置 Rubric、人工角色权限、上游失效传播和跨阶段最早受影响目标计算。这些是下一阶段的实现项。

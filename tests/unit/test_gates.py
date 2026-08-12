@@ -36,11 +36,45 @@ THE SYSTEM SHALL 返回结果
 ## 验收条件
 
 - AC-001：通过自动化测试验证。
+
+## 原型证据
+
+![原型图](https://example.invalid/prototype.png)
 """
         result = evaluate_artifact_gate("prd", content)
         self.assertEqual(result.decision, GateDecision.PASS)
         self.assertTrue(result.passed)
         self.assertGreater(result.score, 90)
+
+    def test_prd_without_prototype_is_p0_blocked_even_when_text_is_complete(self) -> None:
+        content = """---
+artifact_id: PRD-CHG-IMAGE
+artifact_type: prd
+change_id: CHG-IMAGE
+version: 1
+status: waiting_review
+created_by: test
+created_at: 2026-08-05T00:00:00Z
+---
+
+## 问题与目标
+
+需求目标。
+
+## REQ-001
+
+WHEN 用户提交需求
+THE SYSTEM SHALL 返回结果
+
+## 验收条件
+
+- AC-001：通过自动化测试验证。
+"""
+        result = evaluate_artifact_gate("prd", content)
+        self.assertEqual(result.decision, GateDecision.BLOCKED)
+        self.assertFalse(result.passed)
+        self.assertEqual(result.score, 85.0)
+        self.assertTrue(any(finding.finding_id == "GATE-PROTOTYPE-001" for finding in result.findings))
 
     def test_missing_requirement_is_blocked(self) -> None:
         content = """---

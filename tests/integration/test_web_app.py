@@ -52,6 +52,19 @@ GET /api/health 返回状态；GET /api/requirements 返回标题和目标，不
 
 
 class WebAppIntegrationTests(unittest.TestCase):
+    def test_health_exposes_m3_readiness_without_api_key_value(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            "os.environ",
+            {"MINIMAX_API_KEY": "provider-secret", "MINIMAX_MODEL": "MiniMax-M3"},
+            clear=True,
+        ):
+            client = TestClient(create_app(directory, compose_runtime=False, agent_provider="minimax"))
+            payload = client.get("/api/health").json()
+        self.assertEqual(payload["agent"]["model"], "MiniMax-M3")
+        self.assertTrue(payload["agent"]["multimodal"])
+        self.assertTrue(payload["agent"]["ready"])
+        self.assertNotIn("provider-secret", str(payload))
+
     def test_markdown_upload_runs_to_downloadable_project(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             client = TestClient(create_app(directory, compose_runtime=False))

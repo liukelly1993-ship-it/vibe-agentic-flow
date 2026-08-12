@@ -248,7 +248,11 @@ class VafWebService:
                         self.store.update(job_id, result=result)
                     except Exception:
                         pass
-            blocked = isinstance(exc, WorkflowError) and "BLOCKED" in str(exc)
+            blocked = (
+                isinstance(exc, WorkflowError) and "BLOCKED" in str(exc)
+            ) or (
+                isinstance(exc, MiniMaxProviderError) and str(exc).startswith("VAF-MULTIMODAL-")
+            )
             self.store.update(
                 job_id,
                 status="BLOCKED" if blocked else "FAILED",

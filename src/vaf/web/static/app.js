@@ -192,8 +192,8 @@ function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (character
 fetch("/api/health").then(async (response) => {
   const health = await response.json();
   const agent = health.agent || {};
-  document.querySelector("#service-status").textContent = response.ok
+  document.querySelector("#service-status").textContent = response.ok && agent.ready !== false
     ? `${agent.model || "本地引擎"} 在线`
-    : "引擎异常";
+    : agent.error || "引擎异常";
 }).catch(() => { document.querySelector("#service-status").textContent = "引擎不可用"; });
 loadJobs();
